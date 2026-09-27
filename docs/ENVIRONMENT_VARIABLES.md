@@ -82,6 +82,21 @@ Optional third-party integrations and experimental feature toggles.
 | `ENABLE_AUTO_UPDATE_CHECK` | boolean | `true` | Periodically query releases repository to check for updates. |
 | `ENABLE_EXPERIMENTAL_FEATURES` | boolean | `false` | Toggle experimental features. |
 
+### Meta WhatsApp Cloud API
+
+These server-only variables enable sending Cloud API text messages through
+`POST /api/meta/messages` and receiving verified Meta webhooks at
+`/api/webhooks/meta`. Send with `{ "to": "15551234567", "message": "Hello" }`
+using either the logged-in session or an `x-api-key` header.
+
+| Variable | Required | Description |
+| :--- | :--- | :--- |
+| `META_ACCESS_TOKEN` | Yes | Meta WhatsApp Cloud API bearer token. |
+| `META_PHONE_NUMBER_ID` | Yes | Phone number ID used by the Cloud API. |
+| `META_GRAPH_API_VERSION` | No | Graph API version, default `v23.0`. |
+| `META_VERIFY_TOKEN` | Yes for webhooks | Private token configured in Meta webhook settings. |
+| `META_APP_SECRET` | Yes for signed webhooks | Meta app secret used to validate `X-Hub-Signature-256`. |
+
 ---
 
 ## 🛡️ 7. Security & Limits
@@ -116,8 +131,8 @@ Required ONLY if utilizing the `docker-compose.yml` stack deployment.
 | :--- | :--- | :--- | :--- |
 | `MYSQL_ROOT_PASSWORD` | **Yes** | — | Root access password for the MySQL container. |
 | `MYSQL_DATABASE` | No | `wa_akg` | Target schema database name. |
-| `ADMIN_EMAIL` | **Yes** | — | Email of the default SuperAdmin generated on first boot. |
-| `ADMIN_PASSWORD` | **Yes** | — | Password of the default SuperAdmin generated on first boot. |
+| `ADMIN_EMAIL` | **Yes** | — | Email of the SuperAdmin synchronized from the environment on every server start. |
+| `ADMIN_PASSWORD` | **Yes** | — | Password synchronized and hashed for that SuperAdmin on every server start. |
 
 ---
 

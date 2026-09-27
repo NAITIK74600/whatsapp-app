@@ -18,10 +18,6 @@ if (process.env.SKIP_DB_PUSH !== "true") {
   run("Syncing database schema (prisma db push)", [require.resolve("prisma/build/index.js"), "db", "push", "--skip-generate"]);
 }
 
-if (process.env.ADMIN_EMAIL && process.env.ADMIN_PASSWORD) {
-  run("Ensuring SuperAdmin account", ["scripts/setup-admin.js", process.env.ADMIN_EMAIL, process.env.ADMIN_PASSWORD]);
-}
-
 // Registers tsx's ESM + CJS TypeScript loaders for everything imported after this line.
 await import("tsx");
 await import("./src/server/index.ts");

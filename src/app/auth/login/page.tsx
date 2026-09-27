@@ -27,7 +27,10 @@ const formSchema = z.object({
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard';
+  const requestedCallbackUrl = searchParams.get('callbackUrl');
+  const callbackUrl = requestedCallbackUrl?.startsWith('/') && !requestedCallbackUrl.startsWith('//')
+    ? requestedCallbackUrl
+    : '/dashboard';
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 

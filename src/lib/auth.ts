@@ -18,17 +18,21 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       },
       authorize: async (credentials) => {
         const parsedCredentials = z
-          .object({ email: z.string().email(), password: z.string().min(6) })
+          .object({ email: z.string().trim().email(), password: z.string().min(1) })
           .safeParse(credentials);
 
-        if (parsedCredentials.success) {
-          const { password } = parsedCredentials.data;
-          const email = parsedCredentials.data.email.trim().replace(/^(['"])(.*)\1$/, "$2").toLowerCase();
-          
+        if (!parsedCredentials.success) return null;
+
+        const { password } = parsedCredentials.data;
+        const email = cleanEnvValue(parsedCredentials.data.email)?.toLowerCase();
+        if (!email) return null;
+
+        try {
           let user = await prisma.user.findUnique({ where: { email } });
           const adminEmail = cleanEnvValue(process.env.ADMIN_EMAIL)?.toLowerCase();
           const adminPassword = cleanEnvValue(process.env.ADMIN_PASSWORD);
-          const isConfiguredAdmin = email === adminEmail && password === adminPassword;
+          const isConfiguredAdmin = Boolean(adminEmail && adminPassword) &&
+            email === adminEmail && password === adminPassword;
 
           if (isConfiguredAdmin) {
             const hashedPassword = await bcrypt.hash(password, 10);
@@ -45,9 +49,11 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           }
 
           if (!user) return null;
-          if (isConfiguredAdmin || await bcrypt.compare(password, user.password)) return user;
+          return isConfiguredAdmin || await bcrypt.compare(password, user.password) ? user : null;
+        } catch (error) {
+          console.error("Authentication failed:", error);
+          return null;
         }
-        return null;
       },
     }),
   ],

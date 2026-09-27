@@ -10,6 +10,7 @@ import { setupSocket } from "./socket";
 import { waManager } from "../modules/whatsapp/manager";
 import { logger } from "../lib/logger";
 import pkg from "../../package.json";
+import { ensureAdminFromEnv } from "../lib/bootstrap-admin";
 
 const dev = process.env.NODE_ENV !== "production";
 // On Linux hosts (e.g. Hostinger) HOSTNAME is the machine name, not a bind address — only use it for display.
@@ -18,6 +19,13 @@ const port = parseInt(process.env.PORT || "3030", 10);
 
 if (!process.env.AUTH_SECRET) {
   logger.error("Server", "AUTH_SECRET is not set. Generate one with: openssl rand -base64 32");
+  process.exit(1);
+}
+
+try {
+  await ensureAdminFromEnv();
+} catch (error) {
+  logger.error("Server", "Failed to bootstrap SuperAdmin from environment", error);
   process.exit(1);
 }
 

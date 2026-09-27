@@ -4,8 +4,8 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 
 const registerSchema = z.object({
-    name: z.string().min(2),
-    email: z.string().email(),
+    name: z.string().trim().min(2),
+    email: z.string().trim().email(),
     password: z.string().min(6),
 });
 

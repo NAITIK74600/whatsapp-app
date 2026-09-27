@@ -28,7 +28,12 @@ export async function proxy(request: NextRequest) {
     // API routes: Check for API key or session
     if (pathname.startsWith("/api/")) {
         // Skip auth endpoints
-        if (pathname.startsWith("/api/auth") || pathname === "/api/health" || pathname.startsWith("/api/test")) {
+        if (
+            pathname.startsWith("/api/auth") ||
+            pathname === "/api/health" ||
+            pathname.startsWith("/api/test") ||
+            pathname === "/api/webhooks/meta"
+        ) {
             return NextResponse.next();
         }
 
