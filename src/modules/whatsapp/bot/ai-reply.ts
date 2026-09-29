@@ -11,6 +11,9 @@ export type GenerateAiReplyInput = {
         aiApiKey?: string | null;
         aiModel?: string | null;
         aiApiUrl?: string | null;
+        aiSystemPrompt?: string | null;
+        aiTemperature?: number | null;
+        aiMaxTokens?: number | null;
     } | null;
 };
 
@@ -31,23 +34,76 @@ const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 const OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions";
 const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 
-export function resolveAiConfig(config?: {
-    aiProvider?: string | null;
-    aiApiKey?: string | null;
-    aiModel?: string | null;
-    aiApiUrl?: string | null;
-} | null) {
-    const apiKey = (config?.aiApiKey?.trim() || process.env.AI_API_KEY?.trim() || "");
-    const configProvider = (config?.aiProvider || "").toLowerCase().trim();
+let cachedSystemConfig: any = null;
+let lastCacheTime = 0;
+
+export async function getSystemAiConfig() {
+    const now = Date.now();
+    if (cachedSystemConfig && (now - lastCacheTime < 30000)) {
+        return cachedSystemConfig;
+    }
+    try {
+        const sys = await (prisma as any).systemConfig.findUnique({
+            where: { id: "default" }
+        });
+        cachedSystemConfig = sys;
+        lastCacheTime = now;
+        return sys;
+    } catch {
+        return cachedSystemConfig;
+    }
+}
+
+export function invalidateSystemAiConfigCache() {
+    cachedSystemConfig = null;
+    lastCacheTime = 0;
+}
+
+export function resolveAiConfig(
+    config?: {
+        aiProvider?: string | null;
+        aiApiKey?: string | null;
+        aiModel?: string | null;
+        aiApiUrl?: string | null;
+        aiSystemPrompt?: string | null;
+        aiTemperature?: number | null;
+        aiMaxTokens?: number | null;
+    } | null,
+    systemConfig?: {
+        aiProvider?: string | null;
+        aiApiKey?: string | null;
+        aiModel?: string | null;
+        aiSystemPrompt?: string | null;
+    } | null
+) {
+    const activeSystem = systemConfig || cachedSystemConfig;
+    
+    // Priority: Session botConfig (frontend) -> SystemConfig (frontend) -> process.env
+    const apiKey = (
+        config?.aiApiKey?.trim() || 
+        activeSystem?.aiApiKey?.trim() || 
+        process.env.AI_API_KEY?.trim() || 
+        ""
+    );
+
+    let preferredProvider = "";
+    if (config?.aiApiKey?.trim()) {
+        preferredProvider = (config.aiProvider || "").toLowerCase().trim();
+    } else if (activeSystem?.aiApiKey?.trim()) {
+        preferredProvider = (activeSystem?.aiProvider || config?.aiProvider || "").toLowerCase().trim();
+    } else {
+        preferredProvider = (config?.aiProvider || process.env.AI_PROVIDER || "").toLowerCase().trim();
+    }
+
     const envProvider = (process.env.AI_PROVIDER || "").toLowerCase().trim();
 
     // Detect provider signatures
     const isKeyOpenRouter = apiKey.startsWith("sk-or-");
     const isKeyGemini = apiKey.startsWith("AIzaSy");
-    const isExplicitCustom = configProvider === "custom";
-    const isExplicitOpenAi = configProvider === "openai";
-    const isExplicitOpenRouter = configProvider === "openrouter";
-    const isExplicitGemini = configProvider === "gemini" || configProvider === "google";
+    const isExplicitCustom = preferredProvider === "custom";
+    const isExplicitOpenAi = preferredProvider === "openai";
+    const isExplicitOpenRouter = preferredProvider === "openrouter";
+    const isExplicitGemini = preferredProvider === "gemini" || preferredProvider === "google";
 
     // Determine final provider
     let provider = "openrouter";
@@ -66,7 +122,7 @@ export function resolveAiConfig(config?: {
     } else if (envProvider === "openai") {
         provider = "openai";
     } else {
-        provider = "openrouter";
+        provider = isKeyGemini ? "gemini" : "openrouter";
     }
 
     const isOpenRouter = provider === "openrouter" || isKeyOpenRouter;
@@ -79,14 +135,12 @@ export function resolveAiConfig(config?: {
     } else if (isGemini) {
         endpoint = GEMINI_ENDPOINT;
     } else if (isOpenRouter) {
-        // OpenRouter must ALWAYS go to OpenRouter endpoint unless explicitly configured custom
         if (config?.aiApiUrl?.trim() && config.aiApiUrl.includes("openrouter.ai")) {
             endpoint = config.aiApiUrl.trim();
         } else {
             endpoint = OPENROUTER_ENDPOINT;
         }
     } else {
-        // OpenAI
         endpoint = OPENAI_ENDPOINT;
     }
 
@@ -96,7 +150,7 @@ export function resolveAiConfig(config?: {
         endpoint = `${endpoint}chat/completions`;
     }
 
-    let model = (config?.aiModel || "").trim();
+    let model = (config?.aiModel?.trim() || activeSystem?.aiModel?.trim() || "").trim();
     if (!model) {
         if (isGemini) {
             model = "gemini-2.5-flash";
@@ -108,11 +162,9 @@ export function resolveAiConfig(config?: {
     }
 
     if (isGemini) {
-        // If current model doesn't look like a gemini model (e.g. leftover gpt-4o-mini) or is retired 2.0, fallback to gemini-2.5-flash
         if (!model.toLowerCase().includes("gemini") || model === "gemini-2.0-flash") {
             model = "gemini-2.5-flash";
         } else {
-            // Strip any vendor prefix for Google AI Studio endpoint (e.g. google/gemini-2.5-flash -> gemini-2.5-flash)
             if (model.includes("/")) {
                 model = model.split("/").pop() || "gemini-2.5-flash";
             }
@@ -122,7 +174,6 @@ export function resolveAiConfig(config?: {
         }
     } else if (isOpenRouter) {
         if (!model.includes("/")) {
-            // Auto prefix well-known models if missing vendor prefix for OpenRouter
             if (model.startsWith("gpt-") || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("chatgpt")) {
                 model = `openai/${model}`;
             } else if (model.startsWith("claude-")) {
@@ -141,13 +192,19 @@ export function resolveAiConfig(config?: {
         }
     } else if (provider === "openai") {
         if (model.includes("/")) {
-            // Strip OpenRouter vendor prefix if switching back to official OpenAI (e.g. openai/gpt-4o-mini -> gpt-4o-mini)
             model = model.split("/").pop() || "gpt-4o-mini";
         }
     }
 
-    const temperature = Number(process.env.AI_TEMPERATURE ?? "0.7");
-    const maxTokens = Number(process.env.AI_MAX_TOKENS ?? "500");
+    const rawTemp = (config?.aiTemperature !== undefined && config?.aiTemperature !== null) 
+        ? config.aiTemperature 
+        : process.env.AI_TEMPERATURE;
+    const temperature = Number(rawTemp ?? "0.7");
+
+    const rawMaxTokens = (config?.aiMaxTokens !== undefined && config?.aiMaxTokens !== null) 
+        ? config.aiMaxTokens 
+        : process.env.AI_MAX_TOKENS;
+    const maxTokens = Number(rawMaxTokens ?? "500");
 
     return {
         apiKey,
@@ -162,20 +219,28 @@ export function resolveAiConfig(config?: {
 }
 
 export function isAiConfigured(config?: any) {
-    const key = config?.aiApiKey?.trim() || process.env.AI_API_KEY?.trim();
+    const key = config?.aiApiKey?.trim() || cachedSystemConfig?.aiApiKey?.trim() || process.env.AI_API_KEY?.trim();
     return !!key;
 }
 
 export async function generateAiReply({ userMessage, systemPrompt, botName, tenantId, config }: GenerateAiReplyInput) {
-    const aiConfig = resolveAiConfig(config);
+    const systemConfig = await getSystemAiConfig();
+    const aiConfig = resolveAiConfig(config, systemConfig);
 
     if (!aiConfig.apiKey) {
-        throw new Error("AI API Key is not configured (checked session config and environment variables)");
+        throw new Error("AI API Key is not configured (checked session config, global system settings, and environment variables)");
     }
+
+    const effectiveSystemPrompt = 
+        systemPrompt?.trim() || 
+        (config as any)?.aiSystemPrompt?.trim() || 
+        systemConfig?.aiSystemPrompt?.trim() || 
+        process.env.AI_SYSTEM_PROMPT?.trim() || 
+        DEFAULT_SYSTEM_PROMPT;
 
     // Build system prompt with optional tenant business context and knowledge base
     const promptParts: string[] = [
-        systemPrompt?.trim() || process.env.AI_SYSTEM_PROMPT?.trim() || DEFAULT_SYSTEM_PROMPT,
+        effectiveSystemPrompt,
         botName ? `Your bot name is "${botName}".` : ""
     ];
 

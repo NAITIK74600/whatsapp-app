@@ -40,13 +40,18 @@ export async function POST(
             aiApiKey: body.aiApiKey !== undefined ? body.aiApiKey : session.botConfig?.aiApiKey,
             aiModel: body.aiModel || session.botConfig?.aiModel,
             aiApiUrl: isCustom ? (body.aiApiUrl ?? session.botConfig?.aiApiUrl ?? null) : null,
+            aiSystemPrompt: body.systemPrompt || session.botConfig?.aiSystemPrompt,
+            aiTemperature: body.aiTemperature !== undefined ? body.aiTemperature : session.botConfig?.aiTemperature,
+            aiMaxTokens: body.aiMaxTokens !== undefined ? body.aiMaxTokens : session.botConfig?.aiMaxTokens,
         };
 
-        const resolved = resolveAiConfig(testConfig);
+        const { getSystemAiConfig } = await import("@/modules/whatsapp/bot/ai-reply");
+        const systemConfig = await getSystemAiConfig();
+        const resolved = resolveAiConfig(testConfig, systemConfig);
         if (!resolved.apiKey) {
             return NextResponse.json({
                 status: false,
-                message: "No API Key provided. Please enter an API key or set AI_API_KEY environment variable.",
+                message: "No API Key provided. Please enter an API key in Bot Settings or Global Settings, or set the AI_API_KEY environment variable.",
                 error: "Missing API key"
             }, { status: 400 });
         }

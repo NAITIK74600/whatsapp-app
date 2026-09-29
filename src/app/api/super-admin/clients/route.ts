@@ -293,14 +293,21 @@ export async function POST(request: NextRequest) {
         });
 
         // Format onboarding message
-        const configuredBase = process.env.BASE_URL || process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL;
+        const sysConfig = await prisma.systemConfig.findUnique({ where: { id: "default" } }).catch(() => null);
+        const configuredBase = sysConfig?.baseUrl || process.env.BASE_URL || process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL;
         let origin = "";
         if (configuredBase && !configuredBase.includes("localhost")) {
             origin = configuredBase.replace(/\/$/, "");
         } else {
-            origin = request.nextUrl.origin ? request.nextUrl.origin.replace(/\/$/, "") : "http://localhost:3000";
-            if (origin.startsWith("https://localhost")) {
-                origin = origin.replace("https://", "http://");
+            const proto = request.headers.get("x-forwarded-proto") || "https";
+            const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
+            if (host && !host.includes("localhost")) {
+                origin = `${proto}://${host}`;
+            } else {
+                origin = request.nextUrl.origin ? request.nextUrl.origin.replace(/\/$/, "") : "http://localhost:3000";
+                if (origin.startsWith("https://localhost")) {
+                    origin = origin.replace("https://", "http://");
+                }
             }
         }
         const loginUrl = `${origin}/auth/login`;

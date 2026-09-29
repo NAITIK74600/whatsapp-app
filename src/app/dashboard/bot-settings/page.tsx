@@ -55,6 +55,8 @@ export default function BotSettingsPage() {
         aiModel: "openai/gpt-4o-mini",
         aiApiUrl: "",
         aiSystemPrompt: "",
+        aiTemperature: 0.7,
+        aiMaxTokens: 500,
         botAllowedJids: [] as string[],
         botBlockedJids: [] as string[],
         autoReplyAllowedJids: [] as string[],
@@ -121,6 +123,8 @@ export default function BotSettingsPage() {
                         aiModel: data.aiModel || "openai/gpt-4o-mini",
                         aiApiUrl: data.aiApiUrl || "",
                         aiSystemPrompt: data.aiSystemPrompt || "",
+                        aiTemperature: data.aiTemperature !== undefined && data.aiTemperature !== null ? data.aiTemperature : 0.7,
+                        aiMaxTokens: data.aiMaxTokens || 500,
                         antiSpamEnabled: data.antiSpamEnabled ?? true,
                         simulatePresence: data.simulatePresence ?? true,
                         autoOptOut: data.autoOptOut ?? true,
@@ -237,6 +241,9 @@ export default function BotSettingsPage() {
                     aiApiKey: botConfig.aiApiKey,
                     aiModel: botConfig.aiModel,
                     aiApiUrl: botConfig.aiProvider === "custom" ? botConfig.aiApiUrl : "",
+                    systemPrompt: botConfig.aiSystemPrompt,
+                    aiTemperature: botConfig.aiTemperature,
+                    aiMaxTokens: botConfig.aiMaxTokens,
                 })
             });
             const data = await res.json();
@@ -540,7 +547,77 @@ export default function BotSettingsPage() {
                                             </div>
 
                                             <div className="grid gap-2">
-                                                <Label>AI Model</Label>
+                                                <div className="flex items-center justify-between">
+                                                    <Label>AI Model</Label>
+                                                    <div className="flex items-center gap-1 flex-wrap">
+                                                        {botConfig.aiProvider === "gemini" ? (
+                                                            <>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setBotConfig(p => ({ ...p, aiModel: "gemini-2.5-flash" }))}
+                                                                    className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${botConfig.aiModel === "gemini-2.5-flash" ? "bg-primary text-primary-foreground border-primary" : "bg-muted hover:bg-muted/80"}`}
+                                                                >
+                                                                    2.5 Flash
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setBotConfig(p => ({ ...p, aiModel: "gemini-2.5-pro" }))}
+                                                                    className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${botConfig.aiModel === "gemini-2.5-pro" ? "bg-primary text-primary-foreground border-primary" : "bg-muted hover:bg-muted/80"}`}
+                                                                >
+                                                                    2.5 Pro
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setBotConfig(p => ({ ...p, aiModel: "gemini-1.5-flash" }))}
+                                                                    className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${botConfig.aiModel === "gemini-1.5-flash" ? "bg-primary text-primary-foreground border-primary" : "bg-muted hover:bg-muted/80"}`}
+                                                                >
+                                                                    1.5 Flash
+                                                                </button>
+                                                            </>
+                                                        ) : botConfig.aiProvider === "openrouter" ? (
+                                                            <>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setBotConfig(p => ({ ...p, aiModel: "openai/gpt-4o-mini" }))}
+                                                                    className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${botConfig.aiModel === "openai/gpt-4o-mini" ? "bg-primary text-primary-foreground border-primary" : "bg-muted hover:bg-muted/80"}`}
+                                                                >
+                                                                    GPT-4o Mini
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setBotConfig(p => ({ ...p, aiModel: "google/gemini-2.0-flash-001" }))}
+                                                                    className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${botConfig.aiModel === "google/gemini-2.0-flash-001" ? "bg-primary text-primary-foreground border-primary" : "bg-muted hover:bg-muted/80"}`}
+                                                                >
+                                                                    Gemini 2.0
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setBotConfig(p => ({ ...p, aiModel: "deepseek/deepseek-chat" }))}
+                                                                    className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${botConfig.aiModel === "deepseek/deepseek-chat" ? "bg-primary text-primary-foreground border-primary" : "bg-muted hover:bg-muted/80"}`}
+                                                                >
+                                                                    DeepSeek
+                                                                </button>
+                                                            </>
+                                                        ) : botConfig.aiProvider === "openai" ? (
+                                                            <>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setBotConfig(p => ({ ...p, aiModel: "gpt-4o-mini" }))}
+                                                                    className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${botConfig.aiModel === "gpt-4o-mini" ? "bg-primary text-primary-foreground border-primary" : "bg-muted hover:bg-muted/80"}`}
+                                                                >
+                                                                    GPT-4o Mini
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setBotConfig(p => ({ ...p, aiModel: "gpt-4o" }))}
+                                                                    className={`text-[10px] px-2 py-0.5 rounded border transition-colors ${botConfig.aiModel === "gpt-4o" ? "bg-primary text-primary-foreground border-primary" : "bg-muted hover:bg-muted/80"}`}
+                                                                >
+                                                                    GPT-4o
+                                                                </button>
+                                                            </>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
                                                 <Input
                                                     placeholder={
                                                         botConfig.aiProvider === "gemini"
@@ -553,11 +630,7 @@ export default function BotSettingsPage() {
                                                     onChange={(e) => setBotConfig(prev => ({ ...prev, aiModel: e.target.value }))}
                                                 />
                                                 <p className="text-[10px] text-muted-foreground">
-                                                    {botConfig.aiProvider === "gemini"
-                                                        ? "Recommended free models: gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro"
-                                                        : botConfig.aiProvider === "openrouter"
-                                                            ? "Examples: openai/gpt-4o-mini, google/gemini-2.0-flash-001, meta-llama/llama-3.3-70b-instruct"
-                                                            : "Default: gpt-4o-mini"}
+                                                    Click any chip above or type any model ID supported by your provider.
                                                 </p>
                                             </div>
                                         </div>
@@ -566,7 +639,7 @@ export default function BotSettingsPage() {
                                             <Label className="flex items-center justify-between">
                                                 <span>API Key</span>
                                                 <span className="text-[10px] text-muted-foreground font-normal">
-                                                    {botConfig.aiApiKey ? "Configured in session" : "Falls back to AI_API_KEY env if empty"}
+                                                    {botConfig.aiApiKey ? "Configured in session" : "Falls back to Global Settings or AI_API_KEY env"}
                                                 </span>
                                             </Label>
                                             <div className="relative">
@@ -639,6 +712,45 @@ export default function BotSettingsPage() {
                                             </div>
                                         )}
 
+                                        <div className="grid sm:grid-cols-2 gap-4 pt-1">
+                                            <div className="grid gap-2">
+                                                <div className="flex items-center justify-between">
+                                                    <Label htmlFor="ai-temp">Creativity (Temperature)</Label>
+                                                    <span className="text-xs font-mono text-muted-foreground">{botConfig.aiTemperature}</span>
+                                                </div>
+                                                <div className="flex items-center gap-3">
+                                                    <Slider
+                                                        id="ai-temp"
+                                                        min={0}
+                                                        max={1.5}
+                                                        step={0.1}
+                                                        value={[botConfig.aiTemperature ?? 0.7]}
+                                                        onValueChange={([val]) => setBotConfig(prev => ({ ...prev, aiTemperature: val }))}
+                                                        className="flex-1"
+                                                    />
+                                                </div>
+                                                <p className="text-[10px] text-muted-foreground">
+                                                    0.2 = Precise & factual, 0.7 = Natural advisor, 1.2 = Creative.
+                                                </p>
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                <Label htmlFor="ai-tokens">Max Tokens (Reply Length)</Label>
+                                                <Input
+                                                    id="ai-tokens"
+                                                    type="number"
+                                                    min={100}
+                                                    max={2000}
+                                                    step={50}
+                                                    value={botConfig.aiMaxTokens ?? 500}
+                                                    onChange={(e) => setBotConfig(prev => ({ ...prev, aiMaxTokens: parseInt(e.target.value) || 500 }))}
+                                                />
+                                                <p className="text-[10px] text-muted-foreground">
+                                                    Recommended: 300 - 600 tokens for optimal WhatsApp mobile readability.
+                                                </p>
+                                            </div>
+                                        </div>
+
                                         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 pt-1">
                                             <Button
                                                 type="button"
@@ -685,15 +797,63 @@ export default function BotSettingsPage() {
                                         </div>
 
                                         <div className="grid gap-2">
-                                            <Label>AI System Prompt</Label>
+                                            <div className="flex items-center justify-between flex-wrap gap-2">
+                                                <Label>AI System Prompt</Label>
+                                                <div className="flex items-center gap-1 flex-wrap">
+                                                    <span className="text-[10px] text-muted-foreground mr-1">Load Preset:</span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setBotConfig(prev => ({
+                                                            ...prev,
+                                                            aiSystemPrompt: `You are the professional WhatsApp sales advisor for Easy Motors Biel.
+• Welcome customers warmly and assist them with vehicle inventory, test drive bookings, specifications, financing inquiries, and trade-in valuations.
+• Use bullet points (•) for vehicle features and specifications.
+• Use *bold* for model names, key specs, and prices.
+• Never send huge blocks of text; separate thoughts with double newlines.
+• If asked for an appointment or test drive, politely confirm their vehicle of interest and preferred date/time.
+• For payment, down payments, or signing final contracts, explain that for security our sales team directly issues official paperwork and invoices.`
+                                                        }))}
+                                                        className="text-[10px] px-2 py-0.5 rounded border bg-muted hover:bg-muted/80 transition-colors"
+                                                    >
+                                                        🚗 Dealership
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setBotConfig(prev => ({
+                                                            ...prev,
+                                                            aiSystemPrompt: `You are a courteous WhatsApp customer support and appointment assistant.
+• Help customers with business information, opening hours, booking requests, and general FAQs.
+• Format all responses with clean paragraph breaks and bullet points (•).
+• Highlight important points using *bold* text.
+• If you do not have certain details, politely inform them an advisor will follow up.`
+                                                        }))}
+                                                        className="text-[10px] px-2 py-0.5 rounded border bg-muted hover:bg-muted/80 transition-colors"
+                                                    >
+                                                        💬 Support & Booking
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setBotConfig(prev => ({
+                                                            ...prev,
+                                                            aiSystemPrompt: `You are a helpful WhatsApp shopping concierge.
+• Assist shoppers with product recommendations, order tracking questions, and store policies.
+• Keep replies concise, punchy, and mobile-friendly with bullet points.
+• Use WhatsApp styling: *bold* for product names and prices.`
+                                                        }))}
+                                                        className="text-[10px] px-2 py-0.5 rounded border bg-muted hover:bg-muted/80 transition-colors"
+                                                    >
+                                                        🛍️ E-Commerce
+                                                    </button>
+                                                </div>
+                                            </div>
                                             <Textarea
-                                                placeholder="Du bist der freundliche und professionelle WhatsApp-Assistent von Easy Motors Biel..."
+                                                placeholder="You are the friendly and professional WhatsApp assistant of Easy Motors Biel..."
                                                 className="min-h-[140px]"
                                                 value={botConfig.aiSystemPrompt}
                                                 onChange={(e) => setBotConfig(prev => ({ ...prev, aiSystemPrompt: e.target.value }))}
                                             />
                                             <p className="text-xs text-muted-foreground">
-                                                Set business identity, store location, opening hours, tone, and guidance for your WhatsApp AI assistant.
+                                                Configured directly here through the frontend. Overrides any server .env system prompt for this bot instance.
                                             </p>
                                         </div>
                                     </div>

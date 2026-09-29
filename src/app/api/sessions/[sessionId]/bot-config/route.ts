@@ -64,7 +64,9 @@ export async function GET(
             aiApiKey: null,
             aiModel: "openai/gpt-4o-mini",
             aiApiUrl: null,
-            aiSystemPrompt: null
+            aiSystemPrompt: null,
+            aiTemperature: 0.7,
+            aiMaxTokens: 500
         };
 
         return NextResponse.json({ status: true, message: "Bot config fetched successfully", data: session.botConfig });
@@ -137,6 +139,8 @@ export async function POST(
                 aiModel: body.aiModel || (body.aiProvider === "gemini" ? "gemini-2.5-flash" : body.aiProvider === "openrouter" ? "openai/gpt-4o-mini" : "gpt-4o-mini"),
                 aiApiUrl: body.aiProvider === "custom" ? (body.aiApiUrl || null) : null,
                 aiSystemPrompt: body.aiSystemPrompt || null,
+                aiTemperature: body.aiTemperature !== undefined ? parseFloat(body.aiTemperature) : 0.7,
+                aiMaxTokens: body.aiMaxTokens !== undefined ? parseInt(body.aiMaxTokens) : 500,
             },
             update: {
                 botMode: body.botMode,
@@ -171,7 +175,9 @@ export async function POST(
                 aiApiKey: body.aiApiKey,
                 aiModel: body.aiModel,
                 aiApiUrl: body.aiProvider === "custom" ? (body.aiApiUrl || null) : null,
-                aiSystemPrompt: body.aiSystemPrompt || null,
+                aiSystemPrompt: body.aiSystemPrompt !== undefined ? (body.aiSystemPrompt || null) : undefined,
+                aiTemperature: body.aiTemperature !== undefined ? parseFloat(body.aiTemperature) : undefined,
+                aiMaxTokens: body.aiMaxTokens !== undefined ? parseInt(body.aiMaxTokens) : undefined,
             }
         });
 

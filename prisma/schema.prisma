@@ -327,6 +327,8 @@ model BotConfig {
   aiModel         String?  @default("openai/gpt-4o-mini")
   aiApiUrl        String?  @db.Text
   aiSystemPrompt  String? @db.Text
+  aiTemperature   Float?  @default(0.7)
+  aiMaxTokens     Int?    @default(500)
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -337,10 +339,17 @@ model BotConfig {
 model SystemConfig {
   id                 String   @id @default("default") // Singleton ID
   appName            String   @default("WA-AKG")
+  baseUrl            String?  // Public live domain URL, e.g. https://azure-dinosaur-903216.hostingersite.com
   logoUrl            String?
   faviconUrl         String?
   timezone           String   @default("Asia/Jakarta")
   enableRegistration Boolean  @default(true)
+
+  // Global AI Configuration (Set from frontend instead of .env)
+  aiProvider         String?  @default("gemini")
+  aiApiKey           String?  @db.Text
+  aiModel            String?  @default("gemini-2.5-flash")
+  aiSystemPrompt     String?  @db.Text
   
   updatedAt          DateTime @updatedAt
 }
