@@ -542,16 +542,20 @@ async function processAndSaveMessage(
                 } : {}
             });
 
-            // Welcome Message Logic
-            if (!fromMe && triggerWebhook && config?.welcomeMessage && sock) {
-                // Let's check if message count for this contact is exactly 1 (the one we just saved)
-                const msgCount = await prisma.message.count({
-                    where: { sessionId: dbSessionId, remoteJid: finalRemoteJid }
-                });
+            // Welcome Message Logic (Only if explicitly enabled, for private chats only)
+            if (!fromMe && triggerWebhook && config?.enableWelcomeMessage && config?.welcomeMessage && sock) {
+                const isGroupOrBroadcast = finalRemoteJid.endsWith("@g.us") || finalRemoteJid.includes("@broadcast") || finalRemoteJid === "status@broadcast";
+                if (!isGroupOrBroadcast) {
+                    // Let's check if message count for this contact is exactly 1 (the one we just saved)
+                    const msgCount = await prisma.message.count({
+                        where: { sessionId: dbSessionId, remoteJid: finalRemoteJid }
+                    });
 
-                if (msgCount === 1) {
-                    logger.info("Store", `Sending welcome message to ${finalRemoteJid}`);
-                    await sock.sendMessage(finalRemoteJid, { text: config.welcomeMessage });
+                    if (msgCount === 1) {
+                        logger.info("Store", `Sending welcome message to ${finalRemoteJid}`);
+                        const formattedWelcome = config.welcomeMessage.replace(/\\n/g, '\n').replace(/\r\n/g, '\n');
+                        await sock.sendMessage(finalRemoteJid, { text: formattedWelcome });
+                    }
                 }
             }
         }

@@ -27,7 +27,11 @@ import {
     Tag,
     MessageCircleReply,
     Contact,
-    UserPlus
+    UserPlus,
+    Shield,
+    Building2,
+    BookOpen,
+    Sparkles
 } from "lucide-react";
 import { useSidebar } from "./sidebar-context";
 import {
@@ -53,10 +57,18 @@ interface NavItem {
 
 const navGroups: NavGroup[] = [
     {
+        label: "Platform Owner",
+        items: [
+            { href: "/super-admin", label: "Super Admin Console", icon: Shield, superadminOnly: true },
+            { href: "/super-admin/clients", label: "Client Workspaces", icon: Building2, superadminOnly: true },
+        ],
+    },
+    {
         label: "Main",
         items: [
             { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
             { href: "/dashboard/sessions", label: "Sessions / QR", icon: QrCode },
+            { href: "/dashboard/onboarding", label: "Setup Wizard", icon: Sparkles },
         ],
     },
     {
@@ -68,7 +80,7 @@ const navGroups: NavGroup[] = [
         ],
     },
     {
-        label: "Contacts",
+        label: "Contacts & CRM",
         items: [
             { href: "/dashboard/contacts", label: "Contacts", icon: UserCheck },
             { href: "/dashboard/groups", label: "Groups", icon: Users },
@@ -76,11 +88,14 @@ const navGroups: NavGroup[] = [
         ],
     },
     {
-        label: "Automation",
+        label: "Automation & AI",
         items: [
-            { href: "/dashboard/bot-settings", label: "Bot Settings", icon: Bot },
-            { href: "/dashboard/autoreply", label: "Auto Reply", icon: MessageCircleReply },
-            { href: "/dashboard/profile", label: "Bot Profile", icon: UserCircle },
+            { href: "/dashboard/bot-settings", label: "AI Bot Settings", icon: Bot },
+            { href: "/dashboard/autoreply", label: "Auto Reply Rules", icon: MessageCircleReply },
+            { href: "/dashboard/knowledge", label: "Knowledge Base", icon: BookOpen },
+            { href: "/dashboard/appointments", label: "Appointments", icon: CalendarClock },
+            { href: "/dashboard/business-profile", label: "Business Profile", icon: Building2 },
+            { href: "/dashboard/profile", label: "WhatsApp Profile", icon: UserCircle },
             { href: "/dashboard/scheduler", label: "Scheduler", icon: CalendarClock },
             { href: "/dashboard/webhooks", label: "Webhooks & API", icon: Webhook },
         ],
@@ -97,7 +112,7 @@ const navGroups: NavGroup[] = [
         items: [
             { href: "/dashboard/media", label: "Media Manager", icon: HardDrive },
             { href: "/dashboard/sessions/access", label: "Session Access", icon: UserPlus },
-            { href: "/dashboard/users", label: "Users", icon: Users, superadminOnly: true },
+            { href: "/dashboard/users", label: "Team Members", icon: Users, superadminOnly: false },
             { href: "/dashboard/settings", label: "Settings", icon: Settings },
             { href: "/dashboard/system-monitor", label: "System Monitor", icon: Activity, superadminOnly: true },
             { href: "/dashboard/notifications", label: "Notifications", icon: Bell, superadminOnly: true },

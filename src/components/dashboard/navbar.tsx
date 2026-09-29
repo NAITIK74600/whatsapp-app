@@ -6,7 +6,8 @@ import { SessionSelector } from "@/components/dashboard/session-selector";
 import { Button } from "@/components/ui/button";
 import { RealtimeClock } from "@/components/dashboard/realtime-clock";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Bell, Inbox, Trash2 } from "lucide-react";
+import { Bell, Inbox, Trash2, Building2, Shield } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import { useSession } from "next-auth/react";
@@ -15,6 +16,7 @@ import { io, Socket } from "socket.io-client";
 
 interface NavbarProps {
     appName?: string;
+    tenantName?: string;
 }
 
 interface Notification {
@@ -27,7 +29,7 @@ interface Notification {
     createdAt: string;
 }
 
-export function Navbar({ appName }: NavbarProps) {
+export function Navbar({ appName, tenantName }: NavbarProps) {
     const router = useRouter();
     const { data: session } = useSession();
     const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -144,7 +146,25 @@ export function Navbar({ appName }: NavbarProps) {
             </div>
 
             <div className="flex items-center gap-2 sm:gap-4 min-w-0">
-                <span className="hidden sm:inline"><RealtimeClock /></span>
+                {tenantName && (
+                    <div className="hidden md:flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-primary/10 border border-primary/20 text-xs font-semibold text-primary">
+                        <Building2 className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate max-w-[150px]">{tenantName}</span>
+                    </div>
+                )}
+
+                {/* @ts-ignore */}
+                {session?.user?.role === "SUPERADMIN" && (
+                    <Link
+                        href="/super-admin"
+                        className="hidden sm:inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs font-semibold border border-border/50 transition-colors"
+                    >
+                        <Shield className="h-3.5 w-3.5 text-primary" />
+                        <span>Super Admin</span>
+                    </Link>
+                )}
+
+                <span className="hidden lg:inline"><RealtimeClock /></span>
                 <SessionSelector />
                 <div className="h-6 w-px bg-border/50 hidden sm:block" />
 

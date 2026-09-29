@@ -21,6 +21,7 @@ export const authConfig = {
             if (user) {
                 token.id = user.id;
                 token.role = (user as any).role;
+                token.mustChangePassword = (user as any).mustChangePassword;
             }
             return token;
         },
@@ -28,6 +29,7 @@ export const authConfig = {
             if (token && session.user) {
                 session.user.id = token.id as string;
                 (session.user as any).role = token.role;
+                (session.user as any).mustChangePassword = token.mustChangePassword;
             }
             return session;
         }

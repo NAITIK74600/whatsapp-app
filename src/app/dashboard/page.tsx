@@ -18,7 +18,9 @@ import {
 
 import { auth } from "@/lib/auth";
 import { getAccessibleSessions } from "@/lib/api-auth";
+import { getTenantContext } from "@/lib/tenant-context";
 import { redirect } from "next/navigation";
+import { Badge } from "@/components/ui/badge";
 
 export const dynamic = 'force-dynamic';
 
@@ -28,7 +30,14 @@ export default async function DashboardPage() {
         redirect("/login");
     }
 
-    const sessions = await getAccessibleSessions(session.user.id!, session.user.role || "OWNER");
+    const tenantContext = await getTenantContext();
+    const activeTenant = tenantContext?.tenant;
+
+    const sessions = await getAccessibleSessions(
+        session.user.id!,
+        session.user.role || "OWNER",
+        tenantContext?.isSuperAdmin ? undefined : activeTenant?.id
+    );
 
     const totalSessions = sessions.length;
     const connectedSessions = sessions.filter(s => s.status === 'CONNECTED').length;
@@ -50,59 +59,77 @@ export default async function DashboardPage() {
 
     const stats = [
         {
-            title: "Total Sessions",
-            value: totalSessions,
+            title: "WhatsApp Sessions",
+            value: `${connectedSessions} / ${activeTenant?.maxSessions || totalSessions}`,
             icon: QrCode,
-            description: "Registered sessions",
+            description: "Active device connections",
             color: "text-blue-600",
             bg: "bg-blue-50",
         },
         {
-            title: "Connected",
-            value: connectedSessions,
+            title: "Connected Status",
+            value: connectedSessions > 0 ? "Online" : "Offline",
             icon: Wifi,
-            description: "Online & ready",
+            description: `${connectedSessions} session(s) active`,
             color: "text-emerald-600",
             bg: "bg-emerald-50",
-        },
-        {
-            title: "Disconnected",
-            value: disconnectedSessions,
-            icon: WifiOff,
-            description: "Needs reconnection",
-            color: "text-red-500",
-            bg: "bg-red-50",
         },
         {
             title: "Auto-Reply Rules",
             value: autoReplyCount,
             icon: Zap,
-            description: "Active automations",
+            description: "Configured triggers",
             color: "text-amber-600",
             bg: "bg-amber-50",
+        },
+        {
+            title: "Subscription Plan",
+            value: activeTenant?.plan || "PRO",
+            icon: Activity,
+            description: activeTenant?.businessCategory || "Business Workspace",
+            color: "text-primary",
+            bg: "bg-primary/10",
         },
     ];
 
     const quickActions = [
-        { href: "/dashboard/sessions", label: "New Session", icon: Plus, description: "Connect a new device" },
-        { href: "/dashboard/chat", label: "Send Message", icon: Send, description: "Open chat interface" },
-        { href: "/dashboard/bot-settings", label: "Bot Settings", icon: Bot, description: "Configure chatbot" },
-        { href: "/dashboard/system-monitor", label: "System Monitor", icon: Activity, description: "View server metrics" },
+        { href: "/dashboard/sessions", label: "Connect WhatsApp", icon: QrCode, description: "Link phone via QR code" },
+        { href: "/dashboard/chat", label: "Live Inbox", icon: MessageSquare, description: "Customer conversations" },
+        { href: "/dashboard/knowledge", label: "Knowledge Base", icon: Zap, description: "Train your AI bot" },
+        { href: "/dashboard/onboarding", label: "Setup Wizard", icon: Plus, description: "Guided configuration" },
     ];
 
     return (
-        <div className="space-y-8">
+        <div className="space-y-8 animate-in fade-in-50 duration-300">
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
                 <div>
-                    <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Dashboard</h2>
-                    <p className="text-sm text-slate-500 mt-1">Overview of your WhatsApp gateway</p>
+                    <div className="flex items-center space-x-2.5">
+                        <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
+                            {activeTenant?.name || "Client Dashboard"}
+                        </h2>
+                        {activeTenant?.plan && (
+                            <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/20">
+                                {activeTenant.plan} PLAN
+                            </Badge>
+                        )}
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                        Workspace management and WhatsApp automation overview
+                    </p>
                 </div>
-                <Link href="/dashboard/sessions">
-                    <Button size="sm" className="gap-2">
-                        <Plus className="h-4 w-4" /> Add Session
-                    </Button>
-                </Link>
+                <div className="flex items-center space-x-3">
+                    <Link href="/dashboard/onboarding">
+                        <Button variant="outline" size="sm" className="rounded-xl border-border/60">
+                            Setup Wizard
+                        </Button>
+                    </Link>
+                    <Link href="/dashboard/sessions">
+                        <Button size="sm" className="rounded-xl shadow-md shadow-primary/20 gap-2">
+                            <Plus className="h-4 w-4" /> Add Session
+                        </Button>
+                    </Link>
+                </div>
             </div>
 
             {/* Stats Grid */}

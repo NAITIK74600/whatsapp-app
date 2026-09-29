@@ -16,7 +16,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { RefreshCw, Save, AlertCircle, Bot, X, Plus, ShieldCheck, Zap, UserCheck, MessageSquarePlus, CheckCircle2, Activity } from "lucide-react";
+import { RefreshCw, Save, AlertCircle, Bot, X, Plus, ShieldCheck, Zap, UserCheck, MessageSquarePlus, CheckCircle2, Activity, Sparkles, Eye, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 import { SessionGuard } from "@/components/dashboard/session-guard";
 
@@ -44,11 +44,16 @@ export default function BotSettingsPage() {
         dailyLimit: 500,
 
         // New fields
+        enableWelcomeMessage: false,
         welcomeMessage: "",
         autoRead: false,
         alwaysOnline: false,
         aiEnabled: false,
         aiTriggerMode: "FALLBACK",
+        aiProvider: "openrouter",
+        aiApiKey: "",
+        aiModel: "openai/gpt-4o-mini",
+        aiApiUrl: "",
         aiSystemPrompt: "",
         botAllowedJids: [] as string[],
         botBlockedJids: [] as string[],
@@ -56,6 +61,9 @@ export default function BotSettingsPage() {
         autoReplyBlockedJids: [] as string[],
     });
     const [botLoading, setBotLoading] = useState(false);
+    const [showApiKey, setShowApiKey] = useState(false);
+    const [testAiLoading, setTestAiLoading] = useState(false);
+    const [testAiResult, setTestAiResult] = useState<{ success: boolean; message: string; reply?: string } | null>(null);
     const [safetyAudit, setSafetyAudit] = useState<{
         score: number;
         status: "OPTIMAL" | "MODERATE" | "HIGH_RISK";
@@ -100,6 +108,7 @@ export default function BotSettingsPage() {
                         ...data,
                         removeBgApiKey: data.removeBgApiKey || "",
                         prefix: data.prefix || "#",
+                        enableWelcomeMessage: data.enableWelcomeMessage || false,
                         welcomeMessage: data.welcomeMessage || "",
                         botAllowedJids: data.botAllowedJids || [],
                         botBlockedJids: data.botBlockedJids || [],
@@ -107,6 +116,10 @@ export default function BotSettingsPage() {
                         autoReplyBlockedJids: data.autoReplyBlockedJids || [],
                         aiEnabled: data.aiEnabled || false,
                         aiTriggerMode: data.aiTriggerMode || "FALLBACK",
+                        aiProvider: data.aiProvider || "openrouter",
+                        aiApiKey: data.aiApiKey || "",
+                        aiModel: data.aiModel || "openai/gpt-4o-mini",
+                        aiApiUrl: data.aiApiUrl || "",
                         aiSystemPrompt: data.aiSystemPrompt || "",
                         antiSpamEnabled: data.antiSpamEnabled ?? true,
                         simulatePresence: data.simulatePresence ?? true,
@@ -208,6 +221,47 @@ export default function BotSettingsPage() {
             toast.error("Error saving privacy settings");
         } finally {
             setPrivacyLoading(false);
+        }
+    };
+
+    const handleTestAi = async () => {
+        if (!sessionId) return;
+        setTestAiLoading(true);
+        setTestAiResult(null);
+        try {
+            const res = await fetch(`/api/sessions/${sessionId}/test-ai`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    aiProvider: botConfig.aiProvider,
+                    aiApiKey: botConfig.aiApiKey,
+                    aiModel: botConfig.aiModel,
+                    aiApiUrl: botConfig.aiApiUrl,
+                })
+            });
+            const data = await res.json();
+            if (data.status) {
+                setTestAiResult({
+                    success: true,
+                    message: `Verified! Provider: ${data.data?.provider || botConfig.aiProvider} (${data.data?.model || botConfig.aiModel})`,
+                    reply: data.data?.reply
+                });
+                toast.success("AI connection verified successfully!");
+            } else {
+                setTestAiResult({
+                    success: false,
+                    message: data.message || "Failed to connect to AI provider"
+                });
+                toast.error(data.message || "AI test failed");
+            }
+        } catch (e: any) {
+            setTestAiResult({
+                success: false,
+                message: e?.message || "Network error testing AI"
+            });
+            toast.error("Network error testing AI");
+        } finally {
+            setTestAiLoading(false);
         }
     };
 
@@ -384,33 +438,172 @@ export default function BotSettingsPage() {
                                 </div>
                             </div>
 
-                            <div className="space-y-2 border-t border-border/50 pt-4">
-                                <Label className="flex items-center gap-2">
-                                    <MessageSquarePlus className="h-4 w-4 text-primary" />
-                                    Welcome Message (Beta)
-                                </Label>
-                                <Textarea
-                                    placeholder="Hello! Welcome to our WhatsApp Bot. How can I help you today?"
-                                    className="min-h-[100px]"
-                                    value={botConfig.welcomeMessage}
-                                    onChange={(e) => setBotConfig(prev => ({ ...prev, welcomeMessage: e.target.value }))}
-                                />
-                                <p className="text-[10px] text-muted-foreground">Sent automatically to users when they message this bot for the first time.</p>
+                            {/* Welcome Message Control */}
+                            <div className="space-y-4 border-t border-border/50 pt-4">
+                                <div className="flex items-center justify-between space-x-2 border p-3 rounded-lg">
+                                    <Label htmlFor="enable-welcome" className="flex flex-col space-y-1 cursor-pointer">
+                                        <span className="font-medium flex items-center gap-1.5">
+                                            <MessageSquarePlus className="h-4 w-4 text-primary" />
+                                            Enable Welcome Message
+                                        </span>
+                                        <span className="font-normal text-[10px] text-muted-foreground">
+                                            Automatically greet new contacts on their first incoming message.
+                                        </span>
+                                    </Label>
+                                    <Switch
+                                        id="enable-welcome"
+                                        checked={botConfig.enableWelcomeMessage}
+                                        onCheckedChange={c => setBotConfig(prev => ({ ...prev, enableWelcomeMessage: c }))}
+                                    />
+                                </div>
+
+                                {botConfig.enableWelcomeMessage && (
+                                    <div className="space-y-2 animate-in fade-in duration-200">
+                                        <Label>Welcome Message Text</Label>
+                                        <Textarea
+                                            placeholder="Grüezi und herzlich willkommen! Wie können wir Ihnen helfen?"
+                                            className="min-h-[120px]"
+                                            value={botConfig.welcomeMessage}
+                                            onChange={(e) => setBotConfig(prev => ({ ...prev, welcomeMessage: e.target.value }))}
+                                        />
+                                        <p className="text-[10px] text-muted-foreground">
+                                            Supports paragraph breaks (press Enter) and WhatsApp formatting (*bold*, _italic_). Only sent to private chats.
+                                        </p>
+                                    </div>
+                                )}
                             </div>
 
+                            {/* AI Auto-Reply Control */}
                             <div className="space-y-4 border-t border-border/50 pt-4">
                                 <div className="flex items-center justify-between space-x-2 border p-3 rounded-lg">
                                     <Label htmlFor="ai-enabled" className="flex flex-col space-y-1 cursor-pointer">
-                                        <span className="font-medium">AI Auto-Reply</span>
-                                        <span className="font-normal text-[10px] text-muted-foreground">Generate replies with your configured OpenAI-compatible provider.</span>
+                                        <span className="font-medium flex items-center gap-1.5">
+                                            <Sparkles className="h-4 w-4 text-primary" />
+                                            AI Auto-Reply
+                                        </span>
+                                        <span className="font-normal text-[10px] text-muted-foreground">
+                                            Generate smart responses using OpenRouter, OpenAI, or compatible AI APIs.
+                                        </span>
                                     </Label>
-                                    <Switch id="ai-enabled" checked={botConfig.aiEnabled}
-                                        onCheckedChange={c => setBotConfig(prev => ({ ...prev, aiEnabled: c }))} />
+                                    <Switch
+                                        id="ai-enabled"
+                                        checked={botConfig.aiEnabled}
+                                        onCheckedChange={c => setBotConfig(prev => ({ ...prev, aiEnabled: c }))}
+                                    />
                                 </div>
 
                                 {botConfig.aiEnabled && (
-                                    <div className="grid gap-4 animate-in fade-in slide-in-from-top-1 duration-200">
+                                    <div className="grid gap-4 animate-in fade-in slide-in-from-top-1 duration-200 p-4 border rounded-xl bg-muted/20">
+                                        <div className="grid sm:grid-cols-2 gap-4">
+                                            <div className="grid gap-2">
+                                                <Label>AI Provider</Label>
+                                                <Select
+                                                    value={botConfig.aiProvider}
+                                                    onValueChange={(v: string) => {
+                                                        let defaultModel = botConfig.aiModel;
+                                                        if (v === "openrouter" && !defaultModel?.includes("/")) {
+                                                            defaultModel = "openai/gpt-4o-mini";
+                                                        }
+                                                        setBotConfig(prev => ({ ...prev, aiProvider: v, aiModel: defaultModel }));
+                                                    }}
+                                                >
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Select Provider" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="openrouter">OpenRouter (Recommended - Any Model)</SelectItem>
+                                                        <SelectItem value="openai">OpenAI Official</SelectItem>
+                                                        <SelectItem value="custom">Custom Compatible API</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                                <p className="text-[10px] text-muted-foreground">
+                                                    OpenRouter gives access to GPT-4o, Claude 3.5, Gemini 2.0 Flash, Llama 3.3, and more.
+                                                </p>
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                <Label>AI Model</Label>
+                                                <Input
+                                                    placeholder={botConfig.aiProvider === "openrouter" ? "e.g. openai/gpt-4o-mini or google/gemini-2.0-flash-001" : "gpt-4o-mini"}
+                                                    value={botConfig.aiModel}
+                                                    onChange={(e) => setBotConfig(prev => ({ ...prev, aiModel: e.target.value }))}
+                                                />
+                                                <p className="text-[10px] text-muted-foreground">
+                                                    {botConfig.aiProvider === "openrouter"
+                                                        ? "Examples: openai/gpt-4o-mini, google/gemini-2.0-flash-001, meta-llama/llama-3.3-70b-instruct"
+                                                        : "Default: gpt-4o-mini"}
+                                                </p>
+                                            </div>
+                                        </div>
+
                                         <div className="grid gap-2">
+                                            <Label className="flex items-center justify-between">
+                                                <span>API Key</span>
+                                                <span className="text-[10px] text-muted-foreground font-normal">
+                                                    {botConfig.aiApiKey ? "Configured in session" : "Falls back to AI_API_KEY env if empty"}
+                                                </span>
+                                            </Label>
+                                            <div className="relative">
+                                                <Input
+                                                    type={showApiKey ? "text" : "password"}
+                                                    placeholder={botConfig.aiProvider === "openrouter" ? "sk-or-v1-..." : "sk-..."}
+                                                    value={botConfig.aiApiKey}
+                                                    onChange={(e) => setBotConfig(prev => ({ ...prev, aiApiKey: e.target.value }))}
+                                                    className="pr-10 font-mono text-xs"
+                                                />
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                                                    onClick={() => setShowApiKey(prev => !prev)}
+                                                >
+                                                    {showApiKey ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
+                                                </Button>
+                                            </div>
+                                            <p className="text-[10px] text-muted-foreground">
+                                                Keys starting with <code className="bg-muted px-1 rounded">sk-or-</code> are automatically connected to OpenRouter with all required HTTP headers.
+                                            </p>
+                                        </div>
+
+                                        {botConfig.aiProvider === "custom" && (
+                                            <div className="grid gap-2">
+                                                <Label>Custom Endpoint URL</Label>
+                                                <Input
+                                                    placeholder="https://api.example.com/v1/chat/completions"
+                                                    value={botConfig.aiApiUrl}
+                                                    onChange={(e) => setBotConfig(prev => ({ ...prev, aiApiUrl: e.target.value }))}
+                                                />
+                                            </div>
+                                        )}
+
+                                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 pt-1">
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={handleTestAi}
+                                                disabled={testAiLoading}
+                                                className="gap-1.5"
+                                            >
+                                                {testAiLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-primary" />}
+                                                Test AI Connection
+                                            </Button>
+                                            {testAiResult && (
+                                                <div className={`text-xs px-2.5 py-1 rounded border flex items-center gap-1.5 ${testAiResult.success ? "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800" : "bg-destructive/10 text-destructive border-destructive/20"}`}>
+                                                    {testAiResult.success ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" /> : <AlertCircle className="h-3.5 w-3.5 shrink-0" />}
+                                                    <span>{testAiResult.message}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                        {testAiResult?.reply && (
+                                            <div className="text-xs bg-card p-3 rounded-lg border">
+                                                <span className="font-semibold text-muted-foreground block text-[10px] uppercase tracking-wider mb-1">Live AI Test Reply:</span>
+                                                <p className="italic text-foreground">{testAiResult.reply}</p>
+                                            </div>
+                                        )}
+
+                                        <div className="grid gap-2 pt-2 border-t">
                                             <Label>AI Trigger Mode</Label>
                                             <Select
                                                 value={botConfig.aiTriggerMode}
@@ -420,22 +613,26 @@ export default function BotSettingsPage() {
                                                     <SelectValue placeholder="Select when AI should reply" />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    <SelectItem value="FALLBACK">Fallback only after no keyword rule matches</SelectItem>
-                                                    <SelectItem value="ALWAYS">Always reply to allowed text messages</SelectItem>
+                                                    <SelectItem value="FALLBACK">Fallback only (when no keyword rule matches)</SelectItem>
+                                                    <SelectItem value="ALWAYS">Always reply to all allowed messages</SelectItem>
                                                 </SelectContent>
                                             </Select>
-                                            <p className="text-xs text-muted-foreground">Fallback mode lets your fixed auto-reply rules win before AI is used.</p>
+                                            <p className="text-xs text-muted-foreground">
+                                                Fallback mode ensures your fixed keyword rules always reply first. Only unrecognized questions go to AI.
+                                            </p>
                                         </div>
 
                                         <div className="grid gap-2">
                                             <Label>AI System Prompt</Label>
                                             <Textarea
-                                                placeholder="You are a helpful WhatsApp business assistant. Keep replies short and useful."
-                                                className="min-h-[120px]"
+                                                placeholder="Du bist der freundliche und professionelle WhatsApp-Assistent von Easy Motors Biel..."
+                                                className="min-h-[140px]"
                                                 value={botConfig.aiSystemPrompt}
                                                 onChange={(e) => setBotConfig(prev => ({ ...prev, aiSystemPrompt: e.target.value }))}
                                             />
-                                            <p className="text-xs text-muted-foreground">Set your bot personality and rules. The provider API key/model are configured in Hostinger environment variables.</p>
+                                            <p className="text-xs text-muted-foreground">
+                                                Set business identity, store location, opening hours, tone, and guidance for your WhatsApp AI assistant.
+                                            </p>
                                         </div>
                                     </div>
                                 )}

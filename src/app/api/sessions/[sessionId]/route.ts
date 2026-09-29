@@ -164,6 +164,16 @@ export async function DELETE(
         // Delete from manager and database
         await waManager.deleteSession(session.sessionId);
 
+        await prisma.auditLog.create({
+            data: {
+                tenantId: session.tenantId,
+                userId: user.id,
+                action: "SESSION_DELETED",
+                resource: `Session:${session.sessionId}`,
+                details: { sessionId: session.sessionId, name: session.name }
+            }
+        }).catch(() => {});
+
         return NextResponse.json({
             success: true,
             status: true,

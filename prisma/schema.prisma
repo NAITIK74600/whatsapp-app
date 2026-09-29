@@ -16,6 +16,27 @@ enum Role {
   STAFF
 }
 
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  TRIAL
+}
+
+enum TenantPlan {
+  STARTER
+  PROFESSIONAL
+  BUSINESS
+  ENTERPRISE
+}
+
+enum TenantRole {
+  OWNER
+  ADMIN
+  MANAGER
+  AGENT
+  VIEWER
+}
+
 enum MessageType {
   TEXT
   IMAGE
@@ -36,24 +57,29 @@ enum MessageStatus {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  name      String?
-  email     String   @unique
-  password  String
-  role      Role     @default(OWNER)
-  apiKey    String?  @unique // API Key for authentication
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  name               String?
+  email              String   @unique
+  password           String
+  phone              String?
+  mustChangePassword Boolean  @default(false)
+  role               Role     @default(OWNER)
+  apiKey             String?  @unique // API Key for authentication
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
   
-  sessions  Session[]
-  webhooks  Webhook[]
-  notifications Notification[]
-  sessionAccesses SessionAccess[]
+  sessions           Session[]
+  webhooks           Webhook[]
+  notifications      Notification[]
+  sessionAccesses    SessionAccess[]
+  memberships        TenantMembership[]
+  auditLogs          AuditLog[]
 }
 
 model Session {
   id          String    @id @default(cuid())
   userId      String
+  tenantId    String?   // Multi-tenant workspace reference
   name        String    // e.g. "Marketing WA"
   sessionId   String    @unique // The unique ID used for Baileys auth
   status      String    @default("DISCONNECTED") // CONNECTED, DISCONNECTED, ZOMBIE
@@ -63,6 +89,7 @@ model Session {
   updatedAt   DateTime  @updatedAt
 
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant      Tenant?   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   contacts    Contact[]
   messages    Message[]
   groups      Group[]
@@ -72,6 +99,8 @@ model Session {
   webhooks    Webhook[]
   botConfig   BotConfig?
   sessionAccesses SessionAccess[]
+
+  @@index([tenantId])
 }
 
 model Contact {
@@ -85,6 +114,9 @@ model Contact {
   remoteJidAlt String? // Alternate JID (e.g. Phone if JID is LID)
   profilePic  String?  @db.Text
   data        Json?    // Detailed contact data
+  leadStage   String?  @default("NEW") // NEW, CONTACTED, INTERESTED, QUALIFIED, CONVERTED, NOT_INTERESTED
+  tags        Json?    // Array of tags
+  notes       String?  @db.Text
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -282,6 +314,7 @@ model BotConfig {
   dailyLimit      Int     @default(500)  // Maximum recommended messages per 24 hours
 
   // Automation & Presence
+  enableWelcomeMessage Boolean @default(false)
   welcomeMessage  String? @db.Text
   autoRead        Boolean @default(false)
   alwaysOnline    Boolean @default(false)
@@ -289,6 +322,10 @@ model BotConfig {
   // AI auto-reply
   aiEnabled       Boolean @default(false)
   aiTriggerMode   String  @default("FALLBACK") // FALLBACK, ALWAYS
+  aiProvider      String?  @default("openrouter") // openrouter, openai, custom
+  aiApiKey        String?  @db.Text
+  aiModel         String?  @default("openai/gpt-4o-mini")
+  aiApiUrl        String?  @db.Text
   aiSystemPrompt  String? @db.Text
 
   createdAt     DateTime @default(now())
@@ -398,3 +435,143 @@ model BroadcastRecipient {
 
   @@index([broadcastLogId])
 }
+
+model Tenant {
+  id                  String       @id @default(cuid())
+  name                String       // Business Name, e.g. "Easy Motors Biel"
+  slug                String       @unique // e.g. "easy-motors-biel"
+  status              TenantStatus @default(ACTIVE)
+  plan                TenantPlan   @default(STARTER)
+  
+  // Business Profile
+  businessCategory    String?      // Dealership, E-commerce, Restaurant, Healthcare, etc.
+  description         String?      @db.Text
+  logoUrl             String?      @db.Text
+  address             String?      @db.Text
+  country             String?      @default("Switzerland")
+  timezone            String?      @default("Europe/Zurich")
+  preferredLanguage   String?      @default("de")
+  phone               String?
+  email               String?
+  website             String?
+  businessHours       Json?        // Weekly opening hours JSON
+  
+  // Resource Limits
+  maxSessions         Int          @default(1)
+  maxEmployees        Int          @default(3)
+  maxMonthlyMessages  Int          @default(1000)
+  maxContacts         Int          @default(1000)
+  maxAutoReplies      Int          @default(20)
+  aiTokenLimit        Int          @default(100000)
+  
+  // Platform administration & onboarding
+  notes               String?      @db.Text
+  supportContact      String?      
+  onboardingCompleted Boolean      @default(false)
+  onboardingStep      Int          @default(1)
+  
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  memberships         TenantMembership[]
+  sessions            Session[]
+  knowledgeEntries    KnowledgeEntry[]
+  auditLogs           AuditLog[]
+  appointments        Appointment[]
+  campaigns           Campaign[]
+}
+
+model TenantMembership {
+  id          String     @id @default(cuid())
+  tenantId    String
+  userId      String
+  role        TenantRole @default(OWNER)
+  isDefault   Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@index([tenantId])
+}
+
+model KnowledgeEntry {
+  id          String   @id @default(cuid())
+  tenantId    String
+  category    String   @default("FAQ") // FAQ, PRODUCT, SERVICE, POLICY, INSTRUCTION
+  title       String
+  content     String   @db.Text
+  isVerified  Boolean  @default(true)
+  sourceUrl   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, category])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  tenantId    String?
+  userId      String?
+  action      String   // CLIENT_CREATED, SESSION_STARTED, PASSWORD_RESET, LOGIN, etc.
+  resource    String?  // Target resource ID or reference
+  details     Json?    // Context payload
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
+
+model Appointment {
+  id            String   @id @default(cuid())
+  tenantId      String
+  sessionId     String?
+  customerJid   String
+  customerName  String?
+  customerPhone String?
+  serviceName   String?
+  scheduledAt   DateTime
+  status        String   @default("REQUESTED") // REQUESTED, CONFIRMED, RESCHEDULED, CANCELLED, COMPLETED
+  notes         String?  @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, scheduledAt])
+}
+
+model Campaign {
+  id              String    @id @default(cuid())
+  tenantId        String
+  sessionId       String
+  name            String
+  message         String    @db.Text
+  mediaUrl        String?
+  status          String    @default("DRAFT") // DRAFT, SCHEDULED, SENDING, COMPLETED, CANCELLED
+  scheduledAt     DateTime?
+  totalRecipients Int       @default(0)
+  sentCount       Int       @default(0)
+  failedCount     Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+

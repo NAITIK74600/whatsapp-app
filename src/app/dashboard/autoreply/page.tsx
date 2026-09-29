@@ -215,12 +215,15 @@ export default function AutoReplyPage() {
                         <div className="space-y-4 py-4">
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
-                                    <Label>Keyword</Label>
+                                    <Label>Keyword(s)</Label>
                                     <Input 
                                         value={keyword} 
                                         onChange={(e) => setKeyword(e.target.value)} 
-                                        placeholder="e.g. !help, ping" 
+                                        placeholder="e.g. hi, hello, hallo, grüezi" 
                                     />
+                                    <p className="text-[11px] text-muted-foreground">
+                                        Separate multiple keywords with commas (e.g. <code className="bg-muted px-1 rounded">hi, hallo, hey</code>). Any of them triggers this rule.
+                                    </p>
                                 </div>
                                 <div className="space-y-2">
                                     <Label>Match Type</Label>
@@ -257,10 +260,14 @@ export default function AutoReplyPage() {
                                 <Textarea 
                                     value={response} 
                                     onChange={(e) => setResponse(e.target.value)} 
-                                    placeholder="Thank you for your message! Our team will get back to you shortly." 
-                                    className="min-h-[120px]"
+                                    placeholder="Grüezi und herzlich willkommen bei Easy Motors Biel! 👋&#10;&#10;Wie können wir Ihnen helfen?&#10;🛵 Elektroroller&#10;🚲 E-Bikes" 
+                                    className="min-h-[140px]"
                                 />
-                                <p className="text-xs text-muted-foreground">You can use standard WhatsApp formatting (*bold*, _italic_, ~strikethrough~)</p>
+                                <div className="flex flex-col gap-1 text-[11px] text-muted-foreground bg-muted/40 p-2.5 rounded border">
+                                    <span>• <strong>Paragraphs:</strong> Press <strong>Enter</strong> to create line & paragraph breaks.</span>
+                                    <span>• <strong>Multiple Messages:</strong> Separate with <code className="bg-muted px-1 rounded">---</code> on a new line to send multiple messages in sequence.</span>
+                                    <span>• <strong>Formatting:</strong> <code className="bg-muted px-1 rounded">*bold*</code>, <code className="bg-muted px-1 rounded">_italic_</code>.</span>
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -315,12 +322,16 @@ export default function AutoReplyPage() {
                     {rules.map((rule) => (
                         <Card key={rule.id} className="flex flex-col h-full hover:shadow-md transition-shadow">
                             <CardHeader className="pb-3 border-b">
-                                <div className="flex justify-between items-start">
-                                    <div className="space-y-1 pr-2">
-                                        <CardTitle className="text-lg flex items-center gap-2">
-                                            <span className="font-mono bg-muted px-2 py-0.5 rounded text-sm break-all">{rule.keyword}</span>
-                                        </CardTitle>
-                                        <div className="flex gap-2 flex-wrap text-xs">
+                                <div className="flex justify-between items-start gap-2">
+                                    <div className="space-y-1.5 pr-2 flex-grow">
+                                        <div className="flex flex-wrap gap-1.5 items-center">
+                                            {rule.keyword.split(/[,;\n|]+/).map(k => k.trim()).filter(Boolean).map((k, idx) => (
+                                                <span key={idx} className="font-mono bg-primary/10 text-primary border border-primary/20 px-2 py-0.5 rounded text-xs font-semibold">
+                                                    {k}
+                                                </span>
+                                            ))}
+                                        </div>
+                                        <div className="flex gap-2 flex-wrap text-xs pt-1">
                                             <Badge variant="outline" className="text-muted-foreground font-normal shrink-0">{rule.matchType}</Badge>
                                             <Badge variant="secondary" className="font-normal shrink-0 text-[10px]">{rule.triggerType}</Badge>
                                         </div>
@@ -339,7 +350,7 @@ export default function AutoReplyPage() {
                                                 <AlertDialogHeader>
                                                     <AlertDialogTitle>Delete Rule?</AlertDialogTitle>
                                                     <AlertDialogDescription>
-                                                        Are you sure you want to delete the auto-reply for keyword <strong>{rule.keyword}</strong>? This action cannot be undone.
+                                                        Are you sure you want to delete this auto-reply rule? This action cannot be undone.
                                                     </AlertDialogDescription>
                                                 </AlertDialogHeader>
                                                 <AlertDialogFooter>
@@ -353,12 +364,29 @@ export default function AutoReplyPage() {
                                     </div>
                                 </div>
                             </CardHeader>
-                            <CardContent className="pt-4 flex-grow flex flex-col">
-                                <div className="text-sm text-foreground bg-muted/30 p-3 rounded-md border whitespace-pre-wrap flex-grow">
-                                    {rule.response}
-                                </div>
+                            <CardContent className="pt-4 flex-grow flex flex-col space-y-2">
+                                {rule.response && (
+                                    <div className="space-y-2 flex-grow">
+                                        {(rule.response.includes('[split]') || rule.response.includes('\n---\n') || rule.response.includes('\n===\n') || rule.response.includes('|||')) ? (
+                                            rule.response
+                                                .split(/\n?\[split\]\n?|\n---\n|\n===\n|\|\|\|/)
+                                                .map(p => p.trim())
+                                                .filter(Boolean)
+                                                .map((part, pIdx) => (
+                                                    <div key={pIdx} className="text-sm text-foreground bg-muted/40 p-3 rounded-lg border whitespace-pre-wrap leading-relaxed relative">
+                                                        <span className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground block mb-1">Message {pIdx + 1}</span>
+                                                        {part}
+                                                    </div>
+                                                ))
+                                        ) : (
+                                            <div className="text-sm text-foreground bg-muted/30 p-3 rounded-md border whitespace-pre-wrap leading-relaxed flex-grow">
+                                                {rule.response}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
                                 {rule.isMedia && (
-                                    <div className="mt-3 text-xs flex items-center gap-1 text-blue-600 bg-blue-50 px-2 py-1 rounded w-fit">
+                                    <div className="mt-2 text-xs flex items-center gap-1 text-blue-600 bg-blue-50 dark:bg-blue-950/40 dark:text-blue-300 px-2 py-1 rounded w-fit">
                                         <ImageIcon className="w-3 h-3" /> Includes Media Attachment
                                     </div>
                                 )}
@@ -381,12 +409,15 @@ export default function AutoReplyPage() {
                     <div className="space-y-4 py-4">
                         <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <Label>Keyword</Label>
+                                <Label>Keyword(s)</Label>
                                 <Input 
                                     value={editKeyword} 
                                     onChange={(e) => setEditKeyword(e.target.value)} 
-                                    placeholder="e.g. !help, ping" 
+                                    placeholder="e.g. hi, hello, hallo, grüezi" 
                                 />
+                                <p className="text-[11px] text-muted-foreground">
+                                    Separate multiple keywords with commas (e.g. <code className="bg-muted px-1 rounded">preis, kosten, rate</code>).
+                                </p>
                             </div>
                             <div className="space-y-2">
                                 <Label>Match Type</Label>
@@ -424,9 +455,13 @@ export default function AutoReplyPage() {
                                 value={editResponse} 
                                 onChange={(e) => setEditResponse(e.target.value)} 
                                 placeholder="Response text..." 
-                                className="min-h-[120px]"
+                                className="min-h-[140px]"
                             />
-                            <p className="text-xs text-muted-foreground">You can use standard WhatsApp formatting (*bold*, _italic_, ~strikethrough~)</p>
+                            <div className="flex flex-col gap-1 text-[11px] text-muted-foreground bg-muted/40 p-2.5 rounded border">
+                                <span>• <strong>Paragraphs:</strong> Press <strong>Enter</strong> to create line & paragraph breaks.</span>
+                                <span>• <strong>Multiple Messages:</strong> Separate with <code className="bg-muted px-1 rounded">---</code> on a new line to send multiple messages in sequence.</span>
+                                <span>• <strong>Formatting:</strong> <code className="bg-muted px-1 rounded">*bold*</code>, <code className="bg-muted px-1 rounded">_italic_</code>.</span>
+                            </div>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-2">

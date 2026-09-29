@@ -8,7 +8,9 @@ import { RegistrationWarning } from "@/components/dashboard/registration-warning
 import { prisma } from "@/lib/prisma";
 import { Toaster } from "sonner";
 import pkg from "../../../package.json";
+import { getTenantContext } from "@/lib/tenant-context";
 
+import { ForcePasswordChangeModal } from "@/components/dashboard/force-password-change-modal";
 
 export default async function DashboardLayout({
     children,
@@ -21,10 +23,28 @@ export default async function DashboardLayout({
     const appName = systemConfig?.appName || "WA-AKG";
     const registrationEnabled = systemConfig?.enableRegistration ?? true;
 
+    const tenantContext = await getTenantContext();
+    const activeTenant = tenantContext?.tenant;
+    const isSuspended = activeTenant?.status === "SUSPENDED" && !tenantContext?.isSuperAdmin;
+
+    // Direct check of user mustChangePassword state
+    let mustChangePassword = false;
+    if (session?.user?.id) {
+        const dbUser = await prisma.user.findUnique({
+            where: { id: session.user.id },
+            select: { mustChangePassword: true }
+        });
+        mustChangePassword = !!dbUser?.mustChangePassword;
+    }
+
     return (
         <SessionProvider>
             <SidebarProvider>
                 <UpdateChecker />
+                <ForcePasswordChangeModal
+                    mustChange={mustChangePassword}
+                    userEmail={session?.user?.email}
+                />
                 <RegistrationWarning
                     role={session?.user?.role as string}
                     registrationEnabled={registrationEnabled}
@@ -38,7 +58,7 @@ export default async function DashboardLayout({
 
                     {/* Sidebar */}
                     <SidebarShell
-                        appName={appName}
+                        appName={activeTenant?.name || appName}
                         userName={session?.user?.name}
                         userEmail={session?.user?.email}
                         version={pkg.version}
@@ -46,9 +66,21 @@ export default async function DashboardLayout({
 
                     {/* Main Content */}
                     <div className="flex-1 flex flex-col overflow-hidden min-w-0 relative z-10" suppressHydrationWarning={true}>
-                        <Navbar appName={appName} />
+                        <Navbar appName={appName} tenantName={activeTenant?.name} />
                         <main className="flex-1 overflow-auto p-3 sm:p-4 lg:p-6 styled-scrollbar">
-                            {children}
+                            {isSuspended ? (
+                                <div className="p-8 max-w-2xl mx-auto my-12 text-center rounded-2xl bg-destructive/10 border border-destructive/20 text-destructive space-y-3">
+                                    <h2 className="text-xl font-bold">Workspace Suspended</h2>
+                                    <p className="text-sm text-muted-foreground">
+                                        This client workspace has been suspended by the platform administrator. Access to WhatsApp sessions and automations is temporarily restricted.
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                        Please contact support to restore account privileges.
+                                    </p>
+                                </div>
+                            ) : (
+                                children
+                            )}
                         </main>
                     </div>
                     <Toaster />
@@ -57,3 +89,4 @@ export default async function DashboardLayout({
         </SessionProvider>
     );
 }
+

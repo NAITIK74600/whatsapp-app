@@ -1,14 +1,15 @@
 import { NextResponse, NextRequest } from "next/server";
 import { waManager } from "@/modules/whatsapp/manager";
-import { getAuthenticatedUser, getAccessibleSessions } from "@/lib/api-auth";
+import { getAccessibleSessions } from "@/lib/api-auth";
+import { getTenantContext, recordAuditLog } from "@/lib/tenant-context";
 
 export const dynamic = 'force-dynamic';
 
-// GET: Fetch sessions (filtered by user role and merged with live memory status)
+// GET: Fetch sessions (filtered by tenant context and merged with live memory status)
 export async function GET(request: NextRequest) {
     try {
-        const user = await getAuthenticatedUser(request);
-        if (!user) {
+        const context = await getTenantContext(request);
+        if (!context) {
             return NextResponse.json({
                 success: false,
                 status: false,
@@ -17,8 +18,18 @@ export async function GET(request: NextRequest) {
             }, { status: 401 });
         }
 
-        // Get sessions based on user role
-        const sessions = await getAccessibleSessions(user.id, user.role);
+        if (context.tenant?.status === "SUSPENDED") {
+            return NextResponse.json({
+                success: false,
+                status: false,
+                message: "Account suspended",
+                error: { code: "ACCOUNT_SUSPENDED", message: "This workspace has been suspended. Please contact platform support." }
+            }, { status: 403 });
+        }
+
+        // Get sessions based on user role and tenant context
+        const tenantId = context.isSuperAdmin ? undefined : context.tenant?.id;
+        const sessions = await getAccessibleSessions(context.user.id, context.user.role, tenantId);
 
         // Merge live in-memory status and QR info
         const enrichedSessions = sessions.map((s: any) => {
@@ -38,7 +49,14 @@ export async function GET(request: NextRequest) {
             success: true,
             status: true,
             message: "Sessions retrieved successfully",
-            data: enrichedSessions
+            data: enrichedSessions,
+            tenant: context.tenant ? {
+                id: context.tenant.id,
+                name: context.tenant.name,
+                slug: context.tenant.slug,
+                plan: context.tenant.plan,
+                maxSessions: context.tenant.maxSessions
+            } : null
         });
     } catch (error: any) {
         console.error("Get sessions error:", error);
@@ -51,17 +69,35 @@ export async function GET(request: NextRequest) {
     }
 }
 
-// POST: Create new session (always for the authenticated user)
+// POST: Create new session (bound to user and active tenant)
 export async function POST(request: NextRequest) {
     try {
-        const user = await getAuthenticatedUser(request);
-        if (!user) {
+        const context = await getTenantContext(request);
+        if (!context) {
             return NextResponse.json({
                 success: false,
                 status: false,
                 message: "Unauthorized",
                 error: { code: "UNAUTHORIZED", message: "Authentication required" }
             }, { status: 401 });
+        }
+
+        if (!context.canManageSessions) {
+            return NextResponse.json({
+                success: false,
+                status: false,
+                message: "Forbidden",
+                error: { code: "FORBIDDEN", message: "You do not have permission to create WhatsApp sessions in this workspace." }
+            }, { status: 403 });
+        }
+
+        if (context.tenant?.status === "SUSPENDED") {
+            return NextResponse.json({
+                success: false,
+                status: false,
+                message: "Account suspended",
+                error: { code: "ACCOUNT_SUSPENDED", message: "This workspace has been suspended. Please contact platform support." }
+            }, { status: 403 });
         }
 
         const body = await request.json().catch(() => ({}));
@@ -86,9 +122,19 @@ export async function POST(request: NextRequest) {
             }, { status: 400 });
         }
 
-        // Create session and initialize WhatsApp client
+        // Create session and initialize WhatsApp client with tenant association
         try {
-            const session = await waManager.createSession(user.id, cleanName, sessionId);
+            const tenantId = context.tenant?.id;
+            const session = await waManager.createSession(context.user.id, cleanName, sessionId, tenantId);
+
+            await recordAuditLog({
+                tenantId,
+                userId: context.user.id,
+                action: "SESSION_CREATED",
+                resource: `Session:${session.sessionId}`,
+                details: { name: cleanName, sessionId: session.sessionId },
+                request
+            });
 
             return NextResponse.json({
                 success: true,
@@ -100,7 +146,8 @@ export async function POST(request: NextRequest) {
                     name: session.name,
                     status: session.status || "CONNECTING",
                     qrAvailable: false,
-                    createdAt: session.createdAt
+                    createdAt: session.createdAt,
+                    tenantId
                 }
             }, { status: 201 });
         } catch (initError: any) {
@@ -113,7 +160,7 @@ export async function POST(request: NextRequest) {
                     code: isDuplicate ? "DUPLICATE_SESSION" : "SESSION_INITIALIZATION_FAILED",
                     message: initError.message || "Unable to initialize WhatsApp session"
                 }
-            }, { status: isDuplicate ? 409 : 500 });
+            }, { status: isDuplicate ? 409 : 400 });
         }
 
     } catch (error: any) {

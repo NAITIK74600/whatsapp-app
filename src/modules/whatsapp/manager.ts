@@ -91,13 +91,34 @@ export class WhatsAppManager {
         }
     }
 
-    async createSession(userId: string, name: string, customSessionId?: string) {
+    async createSession(userId: string, name: string, customSessionId?: string, tenantId?: string) {
         const trimmedName = (name || "").trim();
         if (!trimmedName || trimmedName.length < 2) {
             throw new Error("Session name must be at least 2 characters long");
         }
         if (trimmedName.length > 50) {
             throw new Error("Session name cannot exceed 50 characters");
+        }
+
+        // Verify tenant limits if tenantId is provided
+        if (tenantId) {
+            const tenant = await prisma.tenant.findUnique({
+                where: { id: tenantId }
+            });
+            if (tenant) {
+                if (tenant.status === "SUSPENDED") {
+                    throw new Error("Account is suspended. Please contact platform support.");
+                }
+                const currentSessionsCount = await prisma.session.count({
+                    where: {
+                        tenantId,
+                        status: { not: "LOGGED_OUT" }
+                    }
+                });
+                if (currentSessionsCount >= tenant.maxSessions) {
+                    throw new Error(`Your plan limit of ${tenant.maxSessions} active WhatsApp session(s) has been reached. Please contact your administrator to upgrade your plan.`);
+                }
+            }
         }
 
         // Sanitize or generate sessionId
@@ -120,9 +141,13 @@ export class WhatsAppManager {
             throw new Error(`A session with ID "${sessionId}" already exists. Please choose a different ID.`);
         }
 
-        // Check if user already has a session with identical name
+        // Check if tenant/user already has a session with identical name
         const duplicateName = await prisma.session.findFirst({
-            where: {
+            where: tenantId ? {
+                tenantId,
+                name: trimmedName,
+                status: { not: "LOGGED_OUT" }
+            } : {
                 userId,
                 name: trimmedName,
                 status: { not: "LOGGED_OUT" }
@@ -138,6 +163,7 @@ export class WhatsAppManager {
         const session = await prisma.session.create({
             data: {
                 userId,
+                tenantId: tenantId || null,
                 name: trimmedName,
                 sessionId,
                 status: "CONNECTING",
@@ -160,7 +186,7 @@ export class WhatsAppManager {
             }
         });
 
-        logger.info("Manager", `Session ${sessionId} ("${trimmedName}") record created in DB. Initializing WhatsApp client...`);
+        logger.info("Manager", `Session ${sessionId} ("${trimmedName}") record created in DB for tenant ${tenantId || 'none'}. Initializing WhatsApp client...`);
 
         // Initialize instance immediately so QR code is generated right away
         const instance = new WhatsAppInstance(sessionId, userId, io);

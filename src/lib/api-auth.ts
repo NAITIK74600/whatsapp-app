@@ -83,42 +83,55 @@ export function isAdmin(userRole: string): boolean {
 /**
  * Check if user can access a session
  * - SUPERADMIN can access all sessions
- * - Other users can access their own sessions OR sessions shared with them
+ * - Tenant members can access sessions belonging to their tenant
+ * - Direct session owners or shared users can access their sessions
  */
-export async function canAccessSession(userId: string, userRole: string, sessionId: string): Promise<boolean> {
+export async function canAccessSession(
+    userId: string,
+    userRole: string,
+    sessionId: string,
+    tenantId?: string
+): Promise<boolean> {
     if (isAdmin(userRole)) {
         return true;
     }
 
-    // Check if session belongs to user (ownership)
     const session = await prisma.session.findFirst({
-        where: {
-            OR: [
-                { id: sessionId, userId },
-                { sessionId: sessionId, userId }
-            ]
-        }
-    });
-
-    if (session) return true;
-
-    // Check if user has shared access
-    const dbSession = await prisma.session.findFirst({
         where: {
             OR: [
                 { id: sessionId },
                 { sessionId: sessionId }
             ]
         },
-        select: { id: true }
+        select: { id: true, userId: true, tenantId: true }
     });
 
-    if (!dbSession) return false;
+    if (!session) return false;
 
+    // Check tenant membership if session belongs to a tenant
+    if (session.tenantId) {
+        if (tenantId && session.tenantId !== tenantId) {
+            return false;
+        }
+        const membership = await prisma.tenantMembership.findUnique({
+            where: {
+                tenantId_userId: {
+                    tenantId: session.tenantId,
+                    userId
+                }
+            }
+        });
+        if (membership) return true;
+    }
+
+    // Direct owner check
+    if (session.userId === userId) return true;
+
+    // Check if user has shared access
     const sharedAccess = await prisma.sessionAccess.findUnique({
         where: {
             sessionId_userId: {
-                sessionId: dbSession.id,
+                sessionId: session.id,
                 userId
             }
         }
@@ -128,8 +141,7 @@ export async function canAccessSession(userId: string, userRole: string, session
 }
 
 /**
- * Check if user is the actual owner of a session (not just shared access)
- * Used for protecting management endpoints (e.g. granting/revoking access)
+ * Check if user is an owner or admin of a session (or tenant owner)
  */
 export async function isSessionOwner(userId: string, userRole: string, sessionId: string): Promise<boolean> {
     if (isAdmin(userRole)) {
@@ -139,29 +151,59 @@ export async function isSessionOwner(userId: string, userRole: string, sessionId
     const session = await prisma.session.findFirst({
         where: {
             OR: [
-                { id: sessionId, userId },
-                { sessionId: sessionId, userId }
+                { id: sessionId },
+                { sessionId: sessionId }
             ]
-        }
+        },
+        select: { id: true, userId: true, tenantId: true }
     });
 
-    return !!session;
+    if (!session) return false;
+
+    if (session.tenantId) {
+        const membership = await prisma.tenantMembership.findUnique({
+            where: {
+                tenantId_userId: {
+                    tenantId: session.tenantId,
+                    userId
+                }
+            }
+        });
+        if (membership && (membership.role === "OWNER" || membership.role === "ADMIN")) {
+            return true;
+        }
+    }
+
+    return session.userId === userId;
 }
 
 /**
  * Get sessions that user can access
- * - SUPERADMIN sees all
- * - Others see only their own
+ * - SUPERADMIN sees all (or filtered by tenantId if specified)
+ * - Tenant members see their tenant's sessions
+ * - Direct owners see their sessions
  */
-export async function getAccessibleSessions(userId: string, userRole: string) {
+export async function getAccessibleSessions(userId: string, userRole: string, tenantId?: string) {
     if (isAdmin(userRole)) {
+        const whereClause: any = {};
+        if (tenantId) {
+            whereClause.tenantId = tenantId;
+        }
         return prisma.session.findMany({
+            where: whereClause,
             orderBy: { createdAt: 'desc' },
             include: {
                 user: {
                     select: {
                         name: true,
                         email: true
+                    }
+                },
+                tenant: {
+                    select: {
+                        id: true,
+                        name: true,
+                        slug: true
                     }
                 },
                 botConfig: true,
@@ -179,53 +221,42 @@ export async function getAccessibleSessions(userId: string, userRole: string) {
         });
     }
 
-    // Get sessions owned by user + sessions shared with user
-    const [ownedSessions, sharedAccess] = await Promise.all([
-        prisma.session.findMany({
-            where: { userId },
-            orderBy: { createdAt: 'desc' },
-            include: {
-                user: {
-                    select: {
-                        name: true,
-                        email: true
-                    }
-                },
-                botConfig: true,
-                webhooks: true,
-                _count: {
-                    select: {
-                        contacts: true,
-                        messages: true,
-                        groups: true,
-                        autoReplies: true,
-                        scheduledMessages: true
-                    }
-                }
-            }
-        }),
-        prisma.sessionAccess.findMany({
-            where: { userId },
-            select: { sessionId: true }
-        })
-    ]);
+    // Find tenants user is a member of
+    const memberships = await prisma.tenantMembership.findMany({
+        where: { userId },
+        select: { tenantId: true }
+    });
+    const userTenantIds = memberships.map(m => m.tenantId);
 
-    if (sharedAccess.length === 0) return ownedSessions;
+    let whereClause: any;
+    if (tenantId && userTenantIds.includes(tenantId)) {
+        whereClause = { tenantId };
+    } else if (userTenantIds.length > 0) {
+        whereClause = {
+            OR: [
+                { tenantId: { in: userTenantIds } },
+                { userId }
+            ]
+        };
+    } else {
+        whereClause = { userId };
+    }
 
-    const sharedSessionIds = sharedAccess.map(a => a.sessionId);
-    const ownedIds = new Set(ownedSessions.map(s => s.id));
-    const missingIds = sharedSessionIds.filter(id => !ownedIds.has(id));
-
-    if (missingIds.length === 0) return ownedSessions;
-
-    const sharedSessions = await prisma.session.findMany({
-        where: { id: { in: missingIds } },
+    return prisma.session.findMany({
+        where: whereClause,
         orderBy: { createdAt: 'desc' },
         include: {
             user: {
                 select: {
                     name: true,
                     email: true
+                }
+            },
+            tenant: {
+                select: {
+                    id: true,
+                    name: true,
+                    slug: true
                 }
             },
             botConfig: true,
@@ -241,8 +272,6 @@ export async function getAccessibleSessions(userId: string, userRole: string) {
             }
         }
     });
-
-    return [...ownedSessions, ...sharedSessions];
 }
 
 /**

@@ -4,7 +4,7 @@ import { normalizeMessageContent } from "@whiskeysockets/baileys";
 import { logger } from "@/lib/logger";
 import { generateAiReply, isAiConfigured } from "@/modules/whatsapp/bot/ai-reply";
 
-// Helper for permission check (Deduplicate from command-handler if possible, but keep simple here)
+// Helper for permission check
 function canAutoReply(config: any, fromMe: boolean, senderJid: string): boolean {
     if (!config || !config.enabled) return false;
 
@@ -12,20 +12,8 @@ function canAutoReply(config: any, fromMe: boolean, senderJid: string): boolean 
     const mode = config.autoReplyMode || 'ALL';
 
     if (fromMe) {
-        // If mode is OWNER, it triggers for ME? 
-        // Auto Reply usually replies TO someone. 
-        // If I send a message, and mode is OWNER, should it reply to me? 
-        // User requested "Self Mode" -> Use case: Snippets.
-        // So yes, if fromMe checks out.
-
-        // However, standard auto-reply logic (replying to incoming) should be blocked if fromMe is true AND mode is ALL?
-        // No, typically Auto Reply doesn't trigger on own messages to prevent unexpected loops.
-        // But for "Self Mode" (Macros), it MUST trigger on own messages.
-
         if (mode === 'OWNER') return true;
         if (mode === 'ALL') return false; // Standard auto-reply ignores self
-
-        // Specific? 
         return false;
     } else {
         // Incoming message from others
@@ -52,21 +40,123 @@ function canAutoReply(config: any, fromMe: boolean, senderJid: string): boolean 
     return false;
 }
 
+function escapeRegExp(str: string): string {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Split a comma, semicolon, newline, or pipe-separated keyword definition into individual keywords.
+ * Example: "hi, hello, hallo, grüezi, guten tag, guten morgen" -> ["hi", "hello", "hallo", "grüezi", "guten tag", "guten morgen"]
+ */
+function extractKeywords(rawKeyword: string): string[] {
+    if (!rawKeyword) return [];
+    return rawKeyword
+        .split(/[,;\n|]+/)
+        .map(k => k.trim())
+        .filter(k => k.length > 0);
+}
+
+/**
+ * Checks whether an incoming message matches any keyword in the rule.
+ * Handles multiple comma-separated keywords for EXACT, CONTAINS, STARTS_WITH, and REGEX.
+ */
+function checkRuleMatch(rule: { keyword: string; matchType: string }, incomingRaw: string): boolean {
+    const rawIncoming = incomingRaw.trim();
+    const incomingLower = rawIncoming.toLowerCase();
+    // Stripped of surrounding punctuation for realistic chat (e.g. "Hallo!", "Hi?", "Probefahrt.")
+    const incomingClean = incomingLower.replace(/^[!?.,:;\s]+|[!?.,:;\s]+$/g, '');
+
+    const keywords = extractKeywords(rule.keyword);
+    if (keywords.length === 0) return false;
+
+    switch (rule.matchType) {
+        case 'EXACT': {
+            return keywords.some(k => {
+                const cleanK = k.toLowerCase().replace(/^[!?.,:;\s]+|[!?.,:;\s]+$/g, '');
+                return incomingClean === cleanK || incomingLower === k.toLowerCase();
+            });
+        }
+        case 'CONTAINS': {
+            return keywords.some(k => {
+                const lowerK = k.toLowerCase();
+                if (!lowerK) return false;
+                // For very short words (<= 3 chars like "hi", "ja"), require word boundaries so "this" doesn't trigger "hi"
+                if (lowerK.length <= 3) {
+                    const regex = new RegExp(`(^|\\s|[.,!?;:()_-])${escapeRegExp(lowerK)}($|\\s|[.,!?;:()_-])`, 'i');
+                    return regex.test(rawIncoming);
+                }
+                return incomingLower.includes(lowerK);
+            });
+        }
+        case 'STARTS_WITH': {
+            return keywords.some(k => {
+                const lowerK = k.toLowerCase();
+                return incomingLower.startsWith(lowerK) || incomingClean.startsWith(lowerK);
+            });
+        }
+        case 'REGEX': {
+            // First try evaluating as standard regex pattern
+            try {
+                const regex = new RegExp(rule.keyword, 'i');
+                if (regex.test(rawIncoming)) return true;
+            } catch (e) {
+                // Ignore regex parse error if user entered comma-separated words in REGEX mode
+            }
+
+            // Fallback for comma-separated patterns in regex mode
+            if (rule.keyword.includes(',') || rule.keyword.includes('|')) {
+                return keywords.some(k => {
+                    try {
+                        const regex = new RegExp(`(^|\\b)${escapeRegExp(k)}(\\b|$)`, 'i');
+                        return regex.test(rawIncoming);
+                    } catch {
+                        return incomingLower.includes(k.toLowerCase());
+                    }
+                });
+            }
+            return false;
+        }
+        default:
+            return false;
+    }
+}
+
+/**
+ * Normalizes paragraph breaks and splits into multiple messages if the user configured a separator.
+ * Separators supported: [split], \n---\n, \n===\n, or |||
+ */
+function parseResponseMessages(response: string): string[] {
+    if (!response) return [];
+    // Normalize newlines: unescape literal \n, convert \r\n to \n
+    const normalized = response
+        .replace(/\\n/g, '\n')
+        .replace(/\r\n/g, '\n')
+        .trim();
+
+    // Check if user specified a separator for multiple distinct messages
+    if (/\[split\]|\n---\n|\n===\n|\|\|\|/.test(normalized)) {
+        return normalized
+            .split(/\n?\[split\]\n?|\n---\n|\n===\n|\|\|\|/)
+            .map(part => part.trim())
+            .filter(part => part.length > 0);
+    }
+
+    return [normalized];
+}
+
 export async function bindAutoReply(sock: WASocket, sessionId: string) {
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
 
-        // Fetch session ID and Bot Config once per batch (optimization)
+        // Fetch session ID and Bot Config once per batch
         const session = await prisma.session.findUnique({
             where: { sessionId },
-            // @ts-ignore
             include: { botConfig: true }
         });
 
         if (!session) return;
 
-        // @ts-ignore
-        let config = (session as any).botConfig;
+        let config = session.botConfig;
 
         if (!config) {
             logger.warn("AutoReply", "No config found, creating default...");
@@ -80,16 +170,19 @@ export async function bindAutoReply(sock: WASocket, sessionId: string) {
             });
         }
 
-        logger.debug("AutoReply", `Processing for ${sessionId}. Config: ${config ? "Found" : "Missing"}, ${config?.enabled ? "Enabled" : "Disabled"}`);
-
         if (!config || !config.enabled) return;
 
         for (const msg of messages) {
             const fromMe = msg.key.fromMe || false;
             const remoteJid = msg.key.remoteJid;
 
+            // Never reply to status, broadcast, or newsletter chats
+            if (!remoteJid || remoteJid === 'status@broadcast' || remoteJid.includes('@broadcast') || remoteJid.includes('@newsletter')) {
+                continue;
+            }
+
             // Standardized Sender Logic
-            const isGroup = remoteJid?.endsWith("@g.us") || false;
+            const isGroup = remoteJid.endsWith("@g.us");
             const remoteJidAlt = msg.key.remoteJidAlt;
             let senderJid = (isGroup ? (msg.key.participant || msg.participant) : remoteJid);
 
@@ -97,15 +190,15 @@ export async function bindAutoReply(sock: WASocket, sessionId: string) {
                 senderJid = remoteJidAlt;
             }
 
-            if (!remoteJid || !senderJid) continue;
+            if (!senderJid) continue;
 
             // Check Permissions
             if (!canAutoReply(config, fromMe, senderJid)) continue;
 
             const content = normalizeMessageContent(msg.message);
-            const text = content?.conversation || content?.extendedTextMessage?.text || ""; // Caption?
+            const text = content?.conversation || content?.extendedTextMessage?.text || "";
 
-            if (!text) continue;
+            if (!text || !text.trim()) continue;
 
             // --- Automatic Safety & Compliance Opt-Out Handling ---
             const trimmedUpper = text.trim().toUpperCase();
@@ -114,7 +207,7 @@ export async function bindAutoReply(sock: WASocket, sessionId: string) {
 
             if (config.autoOptOut !== false && !isGroup && optOutKeywords.includes(trimmedUpper)) {
                 try {
-                    const currentBlocked: string[] = Array.isArray(config.botBlockedJids) ? [...config.botBlockedJids] : [];
+                    const currentBlocked: string[] = Array.isArray(config.botBlockedJids) ? [...config.botBlockedJids as string[]] : [];
                     if (!currentBlocked.includes(senderJid)) {
                         currentBlocked.push(senderJid);
                         await prisma.botConfig.update({
@@ -138,7 +231,7 @@ export async function bindAutoReply(sock: WASocket, sessionId: string) {
 
             if (config.autoOptOut !== false && !isGroup && resubscribeKeywords.includes(trimmedUpper)) {
                 try {
-                    const currentBlocked: string[] = Array.isArray(config.botBlockedJids) ? [...config.botBlockedJids] : [];
+                    const currentBlocked: string[] = Array.isArray(config.botBlockedJids) ? [...config.botBlockedJids as string[]] : [];
                     if (currentBlocked.includes(senderJid)) {
                         const updated = currentBlocked.filter((j: string) => j !== senderJid);
                         await prisma.botConfig.update({
@@ -164,57 +257,34 @@ export async function bindAutoReply(sock: WASocket, sessionId: string) {
                 // Fetch rules for this session
                 const rules = await prisma.autoReply.findMany({
                     where: {
-                        session: {
-                            sessionId: sessionId
-                        }
+                        sessionId: session.id
                     }
                 });
 
                 let matchedRule = false;
 
                 for (const rule of rules) {
-                    let match = false;
-                    const keyword = rule.keyword.toLowerCase();
-                    const incoming = text.toLowerCase();
+                    // Check trigger context (GROUP, PRIVATE, or ALL)
+                    const triggerType = (rule as any).triggerType || 'ALL';
+                    if (triggerType === 'GROUP' && !isGroup) continue;
+                    if (triggerType === 'PRIVATE' && isGroup) continue;
 
-                    switch (rule.matchType) {
-                        case 'EXACT':
-                            match = incoming === keyword;
-                            break;
-                        case 'CONTAINS':
-                            match = incoming.includes(keyword);
-                            break;
-                        case 'STARTS_WITH':
-                            match = incoming.startsWith(keyword);
-                            break;
-                        case 'REGEX':
-                            try {
-                                const regex = new RegExp(rule.keyword, 'i');
-                                match = regex.test(text); // Use original case for regex
-                            } catch (e) {
-                                logger.error("AutoReply", "Invalid regex in auto-reply", rule.keyword);
-                            }
-                            break;
-                    }
+                    // Match against single or multiple comma-separated keywords
+                    const match = checkRuleMatch(rule, text);
 
                     if (match) {
-                        // Check trigger context (GROUP, PRIVATE, or ALL)
-                        const isGroup = remoteJid.endsWith('@g.us');
-                        const triggerType = (rule as any).triggerType || 'ALL'; // Default to ALL if undefined
-
-                        if (triggerType === 'GROUP' && !isGroup) continue;
-                        if (triggerType === 'PRIVATE' && isGroup) continue;
-
                         matchedRule = true;
-                        logger.info("AutoReply", `Match: ${rule.keyword} -> ${remoteJid}`);
+                        logger.info("AutoReply", `Match: "${rule.keyword}" -> ${remoteJid}`);
+
+                        const responseParts = parseResponseMessages(rule.response || "");
 
                         if (rule.isMedia && rule.mediaUrl) {
                             const url = rule.mediaUrl;
                             const type = (rule as any).mediaType || "document";
                             
                             let payload: any = {};
-                            if (rule.response) {
-                                payload.caption = rule.response;
+                            if (responseParts.length > 0) {
+                                payload.caption = responseParts[0];
                             }
 
                             if (type === "image") {
@@ -231,31 +301,53 @@ export async function bindAutoReply(sock: WASocket, sessionId: string) {
                             
                             try {
                                 await sock.sendMessage(remoteJid, payload, { quoted: msg });
+                                // If there are additional split message parts after media
+                                for (let p = 1; p < responseParts.length; p++) {
+                                    await new Promise(r => setTimeout(r, 600));
+                                    await sock.sendMessage(remoteJid, { text: responseParts[p] });
+                                }
                             } catch (err: any) {
                                 logger.error("AutoReply", `Failed to send media auto-reply from URL: ${err.message}. Falling back to text if response exists.`);
-                                if (rule.response) {
-                                    await sock.sendMessage(remoteJid, { text: rule.response }, { quoted: msg });
+                                for (let p = 0; p < responseParts.length; p++) {
+                                    if (p > 0) await new Promise(r => setTimeout(r, 600));
+                                    await sock.sendMessage(remoteJid, { text: responseParts[p] }, p === 0 ? { quoted: msg } : {});
                                 }
                             }
-                        } else if (rule.response) {
-                            await sock.sendMessage(remoteJid, { text: rule.response }, { quoted: msg });
+                        } else if (responseParts.length > 0) {
+                            // Send single or multiple separated messages
+                            for (let p = 0; p < responseParts.length; p++) {
+                                if (p > 0) await new Promise(r => setTimeout(r, 600));
+                                await sock.sendMessage(remoteJid, { text: responseParts[p] }, p === 0 ? { quoted: msg } : {});
+                            }
                         }
 
-                        break;
+                        break; // Stop after first matched rule
                     }
                 }
 
+                // AI Auto-Reply fallback or always mode
                 const shouldUseAi = config.aiEnabled && (config.aiTriggerMode === "ALWAYS" || !matchedRule);
                 if (shouldUseAi) {
-                    if (!isAiConfigured()) {
-                        logger.warn("AI", "AI auto-reply is enabled but AI_API_KEY is not configured.");
+                    if (!isAiConfigured(config)) {
+                        logger.warn("AI", `AI auto-reply is enabled for ${sessionId} but no API key is configured.`);
                     } else {
-                        const reply = await generateAiReply({
-                            userMessage: text,
-                            systemPrompt: config.aiSystemPrompt,
-                            botName: config.botName,
-                        });
-                        await sock.sendMessage(remoteJid, { text: reply }, { quoted: msg });
+                        try {
+                            const reply = await generateAiReply({
+                                userMessage: text,
+                                systemPrompt: config.aiSystemPrompt,
+                                botName: config.botName,
+                                tenantId: session.tenantId,
+                                config: config
+                            });
+
+                            const replyParts = parseResponseMessages(reply);
+                            for (let p = 0; p < replyParts.length; p++) {
+                                if (p > 0) await new Promise(r => setTimeout(r, 600));
+                                await sock.sendMessage(remoteJid, { text: replyParts[p] }, p === 0 ? { quoted: msg } : {});
+                            }
+                        } catch (aiError: any) {
+                            logger.error("AI", "Error generating AI auto-reply:", aiError?.message || aiError);
+                        }
                     }
                 }
 
