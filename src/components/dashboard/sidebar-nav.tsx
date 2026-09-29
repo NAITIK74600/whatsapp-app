@@ -101,21 +101,26 @@ const navGroups: NavGroup[] = [
         ],
     },
     {
-        label: "Developer",
+        label: "Team",
         items: [
-            { href: "/docs", label: "API Docs", icon: FileText },
-            { href: "/swagger", label: "Swagger UI", icon: Code, external: true },
+            { href: "/dashboard/users", label: "Team Members", icon: Users },
         ],
     },
     {
-        label: "Administration",
+        label: "Platform Administration",
         items: [
-            { href: "/dashboard/media", label: "Media Manager", icon: HardDrive },
-            { href: "/dashboard/sessions/access", label: "Session Access", icon: UserPlus },
-            { href: "/dashboard/users", label: "Team Members", icon: Users, superadminOnly: false },
-            { href: "/dashboard/settings", label: "Settings", icon: Settings },
+            { href: "/dashboard/media", label: "Media Manager", icon: HardDrive, superadminOnly: true },
+            { href: "/dashboard/sessions/access", label: "Session Access", icon: UserPlus, superadminOnly: true },
+            { href: "/dashboard/settings", label: "System Settings", icon: Settings, superadminOnly: true },
             { href: "/dashboard/system-monitor", label: "System Monitor", icon: Activity, superadminOnly: true },
             { href: "/dashboard/notifications", label: "Notifications", icon: Bell, superadminOnly: true },
+        ],
+    },
+    {
+        label: "Developer",
+        items: [
+            { href: "/docs", label: "API Docs", icon: FileText, superadminOnly: true },
+            { href: "/swagger", label: "Swagger UI", icon: Code, external: true, superadminOnly: true },
         ],
     },
 ];

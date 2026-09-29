@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -15,15 +16,34 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { RefreshCw, Save, AlertCircle, Sparkles, Globe, Eye, EyeOff } from "lucide-react";
+import { RefreshCw, Save, AlertCircle, Sparkles, Globe, Eye, EyeOff, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
 export default function SettingsPage() {
-    const { data: authSession } = useSession();
+    const { data: authSession, status } = useSession();
+    const router = useRouter();
     const isSuperAdmin = (authSession?.user as any)?.role === "SUPERADMIN";
 
+    useEffect(() => {
+        if (status !== "loading" && !isSuperAdmin) {
+            router.replace("/dashboard");
+        }
+    }, [status, isSuperAdmin, router]);
+
+    if (status !== "loading" && !isSuperAdmin) {
+        return (
+            <div className="p-8 max-w-xl mx-auto my-12 text-center rounded-2xl bg-destructive/10 border border-destructive/20 text-destructive space-y-3">
+                <ShieldAlert className="h-10 w-10 mx-auto text-destructive" />
+                <h2 className="text-xl font-bold">Access Restricted</h2>
+                <p className="text-sm text-muted-foreground">
+                    System settings can only be accessed and managed by the Platform Super Administrator.
+                </p>
+            </div>
+        );
+    }
+
     const [systemConfig, setSystemConfig] = useState({
-        appName: "WA-AKG",
+        appName: "WhatsApp Bot",
         baseUrl: "",
         logoUrl: "",
         faviconUrl: "/favicon.ico",
@@ -60,7 +80,7 @@ export default function SettingsPage() {
                 const data = responseData?.data;
                 if (data && !responseData.error) {
                     setSystemConfig({
-                        appName: data.appName || "WA-AKG",
+                        appName: (data.appName && data.appName !== "WA-AKG") ? data.appName : "WhatsApp Bot",
                         baseUrl: data.baseUrl || "",
                         logoUrl: data.logoUrl || "",
                         faviconUrl: data.faviconUrl || "/favicon.ico",
@@ -135,7 +155,7 @@ export default function SettingsPage() {
                             <Label>Application Name</Label>
                             <input
                                 className={inputClass}
-                                placeholder="WA-AKG"
+                                placeholder="WhatsApp Bot"
                                 value={systemConfig.appName}
                                 onChange={(e) => setSystemConfig(prev => ({ ...prev, appName: e.target.value }))}
                                 disabled={!isSuperAdmin}

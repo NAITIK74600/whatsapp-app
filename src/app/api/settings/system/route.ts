@@ -14,7 +14,12 @@ export async function GET(request: NextRequest) {
             where: { id: "default" }
         });
 
-        return NextResponse.json({ status: true, message: "System config fetched", data: config || { appName: "WA-AKG", faviconUrl: "/favicon.ico" } });
+        const finalConfig = config ? {
+            ...config,
+            appName: (config.appName && config.appName !== "WA-AKG") ? config.appName : "WhatsApp Bot"
+        } : { appName: "WhatsApp Bot", faviconUrl: "/favicon.ico" };
+
+        return NextResponse.json({ status: true, message: "System config fetched", data: finalConfig });
     } catch (error) {
         return NextResponse.json({ status: false, message: "Failed to fetch settings", error: "Failed to fetch settings" }, { status: 500 });
     }
@@ -61,7 +66,7 @@ export async function POST(req: Request) {
             update: updateData,
             create: {
                 id: "default",
-                appName: appName || "WA-AKG",
+                appName: appName || "WhatsApp Bot",
                 baseUrl: baseUrl?.trim() ? baseUrl.trim().replace(/\/$/, "") : null,
                 logoUrl: logoUrl || "",
                 faviconUrl: faviconUrl || "/favicon.ico",

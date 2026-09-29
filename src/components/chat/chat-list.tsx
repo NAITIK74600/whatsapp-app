@@ -9,6 +9,16 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { MessageSquarePlus, Search, MessageCircle, X, Tag, MoreHorizontal, CornerUpLeft, Trash2, Info, Check } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { getChatsStatus } from "@/app/dashboard/chat/actions";
@@ -37,6 +47,8 @@ interface ChatListProps {
     sessionId: string;
     onSelectChat: (jid: string, name?: string) => void;
     selectedJid?: string;
+    refreshTrigger?: number;
+    onChatCleared?: (jid: string) => void;
 }
 
 const PAGE_SIZE = parseInt(process.env.NEXT_PUBLIC_CHAT_PAGE_SIZE || "50", 10);
@@ -150,7 +162,19 @@ function LabelAssignPopover({ sessionId, jid, children }: { sessionId: string; j
 
 // ─── Context Menu ──────────────────
 interface CtxMenuState { x: number; y: number; jid: string; name: string; }
-function ChatContextMenu({ state, onClose, sessionId, onSelect }: { state: CtxMenuState; onClose: () => void; sessionId: string; onSelect: (jid: string, name?: string) => void }) {
+function ChatContextMenu({
+    state,
+    onClose,
+    sessionId,
+    onSelect,
+    onRequestClearChat
+}: {
+    state: CtxMenuState;
+    onClose: () => void;
+    sessionId: string;
+    onSelect: (jid: string, name?: string) => void;
+    onRequestClearChat?: (jid: string, name: string) => void;
+}) {
     const ref = useRef<HTMLDivElement>(null);
     useEffect(() => {
         const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) onClose(); };
@@ -161,16 +185,32 @@ function ChatContextMenu({ state, onClose, sessionId, onSelect }: { state: CtxMe
     const items = [
         { label: "Open chat", icon: MessageCircle, action: () => { onSelect(state.jid, state.name); onClose(); } },
         { label: "Copy JID", icon: Info, action: () => { navigator.clipboard.writeText(state.jid).then(() => toast.success("JID copied!")); onClose(); } },
+        {
+            label: "Clear chat",
+            icon: Trash2,
+            action: () => {
+                onRequestClearChat?.(state.jid, state.name);
+                onClose();
+            },
+            dangerous: true
+        },
     ];
 
     const style: React.CSSProperties = { position: "fixed", top: state.y, left: state.x, zIndex: 9999 };
     if (state.x > window.innerWidth - 180) style.left = state.x - 180;
-    if (state.y > window.innerHeight - 120) style.top = state.y - 120;
+    if (state.y > window.innerHeight - 150) style.top = state.y - 150;
 
     return (
         <div ref={ref} style={style} className="w-44 rounded-xl bg-popover border shadow-xl py-1 animate-in fade-in zoom-in-95 origin-top-left">
             {items.map((item, i) => (
-                <button key={i} onClick={item.action} className="w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors cursor-pointer text-foreground hover:bg-muted">
+                <button
+                    key={i}
+                    onClick={item.action}
+                    className={cn(
+                        "w-full flex items-center gap-2.5 px-3 py-2 text-sm transition-colors cursor-pointer",
+                        item.dangerous ? "text-destructive hover:bg-destructive/10" : "text-foreground hover:bg-muted"
+                    )}
+                >
                     <item.icon className="h-3.5 w-3.5 shrink-0" />
                     {item.label}
                 </button>
@@ -181,10 +221,11 @@ function ChatContextMenu({ state, onClose, sessionId, onSelect }: { state: CtxMe
 
 // ─── Chat Row ──────────────────────
 function ChatRow({
-    chat, isSelected, onSelect, sessionId, labelDots
+    chat, isSelected, onSelect, sessionId, labelDots, onRequestClearChat
 }: {
     chat: ChatContact; isSelected: boolean; onSelect: (jid: string, name?: string) => void; sessionId: string;
     labelDots: { colorHex: string }[];
+    onRequestClearChat?: (jid: string, name: string) => void;
 }) {
     const displayName = getDisplayName(chat);
     const [ctxMenu, setCtxMenu] = useState<CtxMenuState | null>(null);
@@ -192,7 +233,13 @@ function ChatRow({
     return (
         <>
             {ctxMenu && (
-                <ChatContextMenu state={ctxMenu} onClose={() => setCtxMenu(null)} sessionId={sessionId} onSelect={onSelect} />
+                <ChatContextMenu
+                    state={ctxMenu}
+                    onClose={() => setCtxMenu(null)}
+                    sessionId={sessionId}
+                    onSelect={onSelect}
+                    onRequestClearChat={onRequestClearChat}
+                />
             )}
             <div
                 className={cn(
@@ -257,7 +304,7 @@ function SkeletonRow() {
 }
 
 // ─── Main ──────────────────────────
-export function ChatList({ sessionId, onSelectChat, selectedJid }: ChatListProps) {
+export function ChatList({ sessionId, onSelectChat, selectedJid, refreshTrigger, onChatCleared }: ChatListProps) {
     const [chats, setChats] = useState<ChatContact[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchInput, setSearchInput] = useState("");
@@ -265,6 +312,8 @@ export function ChatList({ sessionId, onSelectChat, selectedJid }: ChatListProps
     const [isNewChatOpen, setIsNewChatOpen] = useState(false);
     const [newChatNumber, setNewChatNumber] = useState("");
     const [hasMore, setHasMore] = useState(true);
+    const [chatToClear, setChatToClear] = useState<{ jid: string; name: string } | null>(null);
+    const [clearingChat, setClearingChat] = useState(false);
     // Label dots per JID — {colorHex}[]
     const [chatLabelMap, setChatLabelMap] = useState<Map<string, {colorHex: string}[]>>(new Map());
 
@@ -308,6 +357,35 @@ export function ChatList({ sessionId, onSelectChat, selectedJid }: ChatListProps
     }, [sessionId, searchQuery]);
 
     useEffect(() => { setChats([]); setHasMore(true); fetchChats(); }, [fetchChats]);
+
+    useEffect(() => {
+        if (refreshTrigger !== undefined && refreshTrigger > 0) {
+            fetchChats();
+        }
+    }, [refreshTrigger, fetchChats]);
+
+    const handleConfirmClearChat = async () => {
+        if (!chatToClear) return;
+        setClearingChat(true);
+        try {
+            const res = await fetch(`/api/chat/${sessionId}/${encodeURIComponent(chatToClear.jid)}`, {
+                method: "DELETE"
+            });
+            const data = await res.json();
+            if (res.ok && data.status) {
+                toast.success(data.message || "Chat cleared successfully");
+                setChats(prev => prev.map(c => c.jid === chatToClear.jid ? { ...c, lastMessage: undefined } : c));
+                onChatCleared?.(chatToClear.jid);
+            } else {
+                toast.error(data.message || data.error || "Failed to clear chat");
+            }
+        } catch {
+            toast.error("Failed to clear chat");
+        } finally {
+            setClearingChat(false);
+            setChatToClear(null);
+        }
+    };
 
     useEffect(() => {
         const socket = getSocket();
@@ -388,7 +466,17 @@ export function ChatList({ sessionId, onSelectChat, selectedJid }: ChatListProps
     }, [hasMore, loading, searchQuery, fetchChats]);
 
     const itemContent = useCallback(
-        (_: number, chat: ChatContact) => <ChatRow key={chat.jid} chat={chat} isSelected={selectedJid === chat.jid} onSelect={onSelectChat} sessionId={sessionId} labelDots={chatLabelMap.get(chat.jid) || []} />,
+        (_: number, chat: ChatContact) => (
+            <ChatRow
+                key={chat.jid}
+                chat={chat}
+                isSelected={selectedJid === chat.jid}
+                onSelect={onSelectChat}
+                sessionId={sessionId}
+                labelDots={chatLabelMap.get(chat.jid) || []}
+                onRequestClearChat={(jid, name) => setChatToClear({ jid, name })}
+            />
+        ),
         [selectedJid, onSelectChat, sessionId, chatLabelMap]
     );
 
@@ -468,6 +556,34 @@ export function ChatList({ sessionId, onSelectChat, selectedJid }: ChatListProps
                         ) : null }} />
                 )}
             </div>
+
+            {/* Clear Chat Confirmation Dialog */}
+            <AlertDialog open={!!chatToClear} onOpenChange={(open) => !open && setChatToClear(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+                            <Trash2 className="h-5 w-5" />
+                            Clear Chat History
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to clear all messages for <strong>{chatToClear?.name || chatToClear?.jid}</strong>? All chat messages will be permanently deleted from WhatsApp and the database.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={clearingChat}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={(e) => {
+                                e.preventDefault();
+                                handleConfirmClearChat();
+                            }}
+                            disabled={clearingChat}
+                            className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                        >
+                            {clearingChat ? "Clearing..." : "Clear Chat"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     );
 }

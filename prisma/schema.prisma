@@ -338,7 +338,7 @@ model BotConfig {
 
 model SystemConfig {
   id                 String   @id @default("default") // Singleton ID
-  appName            String   @default("WA-AKG")
+  appName            String   @default("WhatsApp Bot")
   baseUrl            String?  // Public live domain URL, e.g. https://azure-dinosaur-903216.hostingersite.com
   logoUrl            String?
   faviconUrl         String?

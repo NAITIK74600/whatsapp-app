@@ -47,7 +47,7 @@ export default async function SuperAdminLayout({
                             </div>
                             <div className="flex flex-col">
                                 <div className="flex items-center space-x-2">
-                                    <span className="font-bold tracking-tight text-lg">WA-AKG</span>
+                                    <span className="font-bold tracking-tight text-lg">WhatsApp Bot</span>
                                     <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
                                         Super Admin
                                     </span>

@@ -93,7 +93,7 @@ app.prepare().then(() => {
     // Terima kasih telah menggunakan WA-AKG.
     const MONITOR_URL = "https://api-wa-akg.aikeigroup.net/api/ping";
     const APP_URL = process.env.BASE_URL || `http://${hostname}:${port}`; // Kamu bisa mengganti ini untuk keamanan WA-AKG kamu. Tapi jangan menghapus semua Heartbeat nya. Terima Kasih.
-    const APP_NAME = process.env.APP_NAME || "WA-AKG";
+    const APP_NAME = process.env.APP_NAME || "WhatsApp Bot";
 
     const sendHeartbeat = async () => {
       try {

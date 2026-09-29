@@ -435,11 +435,35 @@ export async function bindAutoReply(sock: WASocket, sessionId: string) {
                         logger.warn("AI", `AI auto-reply is enabled for ${sessionId} but no API key is configured.`);
                     } else {
                         try {
+                            // Fetch recent message history for conversational context & language continuity
+                            let chatHistory: { role: "user" | "assistant"; content: string }[] = [];
+                            try {
+                                const recent = await prisma.message.findMany({
+                                    where: {
+                                        sessionId: session.id,
+                                        remoteJid: remoteJid
+                                    },
+                                    take: 8,
+                                    orderBy: { timestamp: "desc" },
+                                    select: {
+                                        fromMe: true,
+                                        content: true
+                                    }
+                                });
+                                chatHistory = recent.reverse().map(m => ({
+                                    role: m.fromMe ? ("assistant" as const) : ("user" as const),
+                                    content: m.content || ""
+                                })).filter(m => m.content.trim().length > 0);
+                            } catch {
+                                // non-fatal
+                            }
+
                             const reply = await generateAiReply({
                                 userMessage: text,
                                 systemPrompt: config.aiSystemPrompt,
                                 botName: config.botName,
                                 tenantId: session.tenantId,
+                                chatHistory,
                                 config: config
                             });
 

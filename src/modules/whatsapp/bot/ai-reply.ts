@@ -6,6 +6,7 @@ export type GenerateAiReplyInput = {
     systemPrompt?: string | null;
     botName?: string | null;
     tenantId?: string | null;
+    chatHistory?: { role: "user" | "assistant"; content: string }[];
     config?: {
         aiProvider?: string | null;
         aiApiKey?: string | null;
@@ -18,11 +19,22 @@ export type GenerateAiReplyInput = {
 };
 
 type ChatMessage = {
-    role: "system" | "user";
+    role: "system" | "user" | "assistant";
     content: string;
 };
 
 const DEFAULT_SYSTEM_PROMPT = `You are a professional WhatsApp business assistant.
+
+CRITICAL LANGUAGE REQUIREMENT (STRICT):
+• You MUST always detect the language of the user's incoming message and respond in THAT EXACT SAME LANGUAGE (e.g., German, French, English, Italian, Spanish, Indonesian, Hindi, Arabic, etc.).
+• If the customer writes in German (Deutsch), you MUST write your entire response in German.
+• If the customer writes in French (Français), you MUST write your entire response in French.
+• If the customer writes in Italian (Italiano), you MUST write your entire response in Italian.
+• If the customer writes in English, you MUST write your entire response in English.
+• If the customer writes in another language, you MUST write your entire response in that exact language.
+• NEVER default to English if the customer writes to you in German, French, or another language.
+• Accurately translate any details from the knowledge base, business info, or vehicle specs into the customer's language.
+
 Formatting & Style Guidelines:
 • Structure your replies with clear paragraph breaks (double newlines) between different thoughts, steps, or details. Never send a solid, unbroken wall of text.
 • Use bullet points (•) for lists, features, or itemized options.
@@ -223,7 +235,7 @@ export function isAiConfigured(config?: any) {
     return !!key;
 }
 
-export async function generateAiReply({ userMessage, systemPrompt, botName, tenantId, config }: GenerateAiReplyInput) {
+export async function generateAiReply({ userMessage, systemPrompt, botName, tenantId, chatHistory, config }: GenerateAiReplyInput) {
     const systemConfig = await getSystemAiConfig();
     const aiConfig = resolveAiConfig(config, systemConfig);
 
@@ -241,7 +253,21 @@ export async function generateAiReply({ userMessage, systemPrompt, botName, tena
     // Build system prompt with optional tenant business context and knowledge base
     const promptParts: string[] = [
         effectiveSystemPrompt,
-        botName ? `Your bot name is "${botName}".` : ""
+        botName ? `Your bot name is "${botName}".` : "",
+        `
+--- MANDATORY MULTILINGUAL LANGUAGE DIRECTIVE (STRICT) ---
+• Incoming user message to answer: "${userMessage}"
+• Detect the language of the user's incoming message.
+• You MUST reply in the EXACT SAME LANGUAGE as the user's message.
+• Examples:
+  - If the user wrote in German (Deutsch: "Hallo", "Guten Tag", "Wie viel kostet...", "Ich suche..."), your entire reply MUST be in German.
+  - If the user wrote in French (Français: "Bonjour", "Combien...", "Je cherche..."), your entire reply MUST be in French.
+  - If the user wrote in Italian (Italiano), your entire reply MUST be in Italian.
+  - If the user wrote in English, your reply MUST be in English.
+  - If the user wrote in Spanish, Indonesian, Hindi, Arabic, or another language, reply in that exact language.
+• NEVER reply in English if the user wrote to you in German, French, or another language.
+• Translate any product descriptions, vehicle specs, and business knowledge seamlessly into the customer's language.
+`
     ];
 
     if (tenantId) {
@@ -304,8 +330,19 @@ export async function generateAiReply({ userMessage, systemPrompt, botName, tena
             role: "system",
             content: promptParts.filter(Boolean).join("\n"),
         },
-        { role: "user", content: userMessage },
     ];
+
+    if (chatHistory && chatHistory.length > 0) {
+        for (const h of chatHistory) {
+            if (h.role === "user" && h.content.trim() === userMessage.trim()) continue;
+            messages.push({
+                role: h.role,
+                content: h.content
+            });
+        }
+    }
+
+    messages.push({ role: "user", content: userMessage });
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 35000);
@@ -321,7 +358,7 @@ export async function generateAiReply({ userMessage, systemPrompt, botName, tena
 
     if (aiConfig.isOpenRouter) {
         headers["HTTP-Referer"] = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || process.env.BASE_URL || "https://wa-akg.com";
-        headers["X-Title"] = botName || process.env.APP_NAME || "WA-AKG Bot";
+        headers["X-Title"] = botName || process.env.APP_NAME || "WhatsApp Bot";
     }
 
     try {

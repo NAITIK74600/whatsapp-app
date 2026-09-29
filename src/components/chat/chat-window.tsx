@@ -47,6 +47,7 @@ interface ChatWindowProps {
     jid: string;
     name?: string;
     onBack?: () => void;
+    onChatCleared?: (jid: string) => void;
 }
 
 const PAGE_LIMIT = 50;
@@ -161,7 +162,7 @@ function ContextMenu({ state, onClose, onReply, onDelete }: { state: ContextMenu
 }
 
 // ─── Main Component ─────────────────
-export function ChatWindow({ sessionId, jid, name, onBack }: ChatWindowProps) {
+export function ChatWindow({ sessionId, jid, name, onBack, onChatCleared }: ChatWindowProps) {
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState("");
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -177,8 +178,12 @@ export function ChatWindow({ sessionId, jid, name, onBack }: ChatWindowProps) {
     const [autoScroll, setAutoScroll] = useState(true);
     const [newMsgBadge, setNewMsgBadge] = useState(false);
 
-    // Delete confirmation
+    // Delete single message confirmation
     const [deleteConfirmMsg, setDeleteConfirmMsg] = useState<Message | null>(null);
+
+    // Clear entire chat history state
+    const [clearChatConfirm, setClearChatConfirm] = useState(false);
+    const [clearingChat, setClearingChat] = useState(false);
 
     // Reply state
     const [replyingTo, setReplyingTo] = useState<Message | null>(null);
@@ -222,6 +227,30 @@ export function ChatWindow({ sessionId, jid, name, onBack }: ChatWindowProps) {
             toast.error(e.message || "Failed to toggle AI status");
         } finally {
             setTogglingAi(false);
+        }
+    };
+
+    const handleClearChat = async () => {
+        setClearingChat(true);
+        try {
+            const res = await fetch(`/api/chat/${sessionId}/${encodeURIComponent(jid)}`, {
+                method: "DELETE"
+            });
+            const data = await res.json();
+            if (res.ok && data.status) {
+                setMessages([]);
+                setOldestTimestamp(null);
+                setHasMore(false);
+                toast.success(data.message || "Chat cleared successfully");
+                onChatCleared?.(jid);
+            } else {
+                throw new Error(data.message || data.error || "Failed to clear chat");
+            }
+        } catch (e: any) {
+            toast.error(e.message || "Failed to clear chat");
+        } finally {
+            setClearingChat(false);
+            setClearChatConfirm(false);
         }
     };
 
@@ -437,6 +466,31 @@ export function ChatWindow({ sessionId, jid, name, onBack }: ChatWindowProps) {
                 </AlertDialogContent>
             </AlertDialog>
 
+            {/* Clear entire chat confirmation dialog */}
+            <AlertDialog open={clearChatConfirm} onOpenChange={setClearChatConfirm}>
+                <AlertDialogContent className="rounded-2xl">
+                    <AlertDialogHeader>
+                        <AlertDialogTitle className="flex items-center gap-2 text-destructive">
+                            <Trash2 className="h-5 w-5" />
+                            Clear Chat History?
+                        </AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to clear all messages for <strong>{displayName}</strong>? All conversation history in this chat will be deleted. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={clearingChat} className="rounded-xl">Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleClearChat}
+                            disabled={clearingChat}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-xl"
+                        >
+                            {clearingChat ? "Clearing..." : "Yes, Clear Chat"}
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
             {/* Loading older indicator */}
             {loadingMore && (
                 <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40 bg-background/80 backdrop-blur-sm px-3 py-1 rounded-full shadow-sm border text-xs flex items-center gap-2">
@@ -478,6 +532,18 @@ export function ChatWindow({ sessionId, jid, name, onBack }: ChatWindowProps) {
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
+                    {/* Clear Chat Button */}
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setClearChatConfirm(true)}
+                        className="h-8 px-2.5 text-xs rounded-xl gap-1.5 text-muted-foreground hover:text-destructive hover:bg-destructive/10 hover:border-destructive/30"
+                        title="Clear all messages in this chat"
+                    >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Clear Chat</span>
+                    </Button>
+
                     <Button
                         size="sm"
                         variant={aiPaused ? "default" : "outline"}

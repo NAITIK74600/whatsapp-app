@@ -24,7 +24,7 @@ export default function BotSettingsPage() {
     const { sessionId } = useSessionProvider();
 
     const [botConfig, setBotConfig] = useState({
-        botName: "WA-AKG Bot",
+        botName: "WhatsApp Bot",
         prefix: "#",
         enableSticker: true,
         enableVideoSticker: true,
@@ -316,7 +316,7 @@ export default function BotSettingsPage() {
                             <div className="grid gap-2">
                                 <Label>Bot Name</Label>
                                 <Input
-                                    placeholder="WA-AKG Bot"
+                                    placeholder="WhatsApp Bot"
                                     value={botConfig.botName}
                                     onChange={(e) => setBotConfig(prev => ({ ...prev, botName: e.target.value }))}
                                 />
@@ -806,6 +806,7 @@ export default function BotSettingsPage() {
                                                         onClick={() => setBotConfig(prev => ({
                                                             ...prev,
                                                             aiSystemPrompt: `You are the professional WhatsApp sales advisor for Easy Motors Biel.
+• Language rule: ALWAYS reply in the exact same language the customer uses (e.g., German, French, English, Italian). If the user writes in German, reply in German. If the user writes in French, reply in French.
 • Welcome customers warmly and assist them with vehicle inventory, test drive bookings, specifications, financing inquiries, and trade-in valuations.
 • Use bullet points (•) for vehicle features and specifications.
 • Use *bold* for model names, key specs, and prices.
@@ -822,6 +823,7 @@ export default function BotSettingsPage() {
                                                         onClick={() => setBotConfig(prev => ({
                                                             ...prev,
                                                             aiSystemPrompt: `You are a courteous WhatsApp customer support and appointment assistant.
+• Language rule: ALWAYS reply in the exact same language the customer uses (e.g., German, French, English, Italian, Spanish, Hindi, etc.).
 • Help customers with business information, opening hours, booking requests, and general FAQs.
 • Format all responses with clean paragraph breaks and bullet points (•).
 • Highlight important points using *bold* text.
@@ -836,6 +838,7 @@ export default function BotSettingsPage() {
                                                         onClick={() => setBotConfig(prev => ({
                                                             ...prev,
                                                             aiSystemPrompt: `You are a helpful WhatsApp shopping concierge.
+• Language rule: ALWAYS reply in the exact same language the customer uses (e.g., German, French, English, Italian, Spanish, etc.).
 • Assist shoppers with product recommendations, order tracking questions, and store policies.
 • Keep replies concise, punchy, and mobile-friendly with bullet points.
 • Use WhatsApp styling: *bold* for product names and prices.`

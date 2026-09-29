@@ -2,6 +2,7 @@ import { NextResponse, NextRequest } from "next/server";
 import { getAuthenticatedUser, isAdmin } from "@/lib/api-auth";
 import { prisma } from "@/lib/prisma";
 import { recordAuditLog } from "@/lib/tenant-context";
+import { waManager } from "@/modules/whatsapp/manager";
 
 export const dynamic = 'force-dynamic';
 
@@ -124,13 +125,21 @@ export async function DELETE(
             }, { status: 404 });
         }
 
-        // Safeguard: Do not allow accidental deletion of Easy Motors Biel pilot tenant
-        if (tenant.slug === "easy-motors-biel") {
-            return NextResponse.json({
-                success: false,
-                message: "Protected Tenant",
-                error: { code: "PROTECTED_TENANT", message: "Easy Motors Biel is the primary pilot tenant and cannot be deleted." }
-            }, { status: 400 });
+        // Clean up any active WhatsApp sessions for this tenant
+        try {
+            const tenantSessions = await prisma.session.findMany({
+                where: { tenantId },
+                select: { sessionId: true }
+            });
+            for (const s of tenantSessions) {
+                try {
+                    await waManager.deleteSession(s.sessionId);
+                } catch (e) {
+                    console.warn(`Could not gracefully delete WhatsApp session ${s.sessionId}:`, e);
+                }
+            }
+        } catch (cleanupErr) {
+            console.warn("Session cleanup warning before tenant deletion:", cleanupErr);
         }
 
         // Record audit before deletion

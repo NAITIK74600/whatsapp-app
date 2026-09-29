@@ -232,14 +232,9 @@ export async function getAccessibleSessions(userId: string, userRole: string, te
     if (tenantId && userTenantIds.includes(tenantId)) {
         whereClause = { tenantId };
     } else if (userTenantIds.length > 0) {
-        whereClause = {
-            OR: [
-                { tenantId: { in: userTenantIds } },
-                { userId }
-            ]
-        };
+        whereClause = { tenantId: { in: userTenantIds } };
     } else {
-        whereClause = { userId };
+        whereClause = { userId, tenantId: null };
     }
 
     return prisma.session.findMany({

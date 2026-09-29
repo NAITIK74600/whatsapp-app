@@ -501,18 +501,16 @@ export default function SuperAdminClientsPage() {
                                                         {client.status === "ACTIVE" ? <XCircle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}
                                                     </Button>
 
-                                                    {/* Delete (if not pilot) */}
-                                                    {!isPilot && (
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-8 w-8 rounded-lg text-muted-foreground hover:text-destructive"
-                                                            title="Delete Workspace"
-                                                            onClick={() => setDeletingClient(client)}
-                                                        >
-                                                            <Trash2 className="h-4 w-4" />
-                                                        </Button>
-                                                    )}
+                                                    {/* Delete Workspace */}
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 rounded-lg text-muted-foreground hover:text-destructive"
+                                                        title="Delete Workspace"
+                                                        onClick={() => setDeletingClient(client)}
+                                                    >
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </Button>
                                                 </div>
                                             </td>
                                         </tr>

@@ -81,3 +81,72 @@ export async function GET(
         return NextResponse.json({ status: false, message: 'Failed to fetch messages', error: 'Failed to fetch messages' }, { status: 500 });
     }
 }
+
+// DELETE: Clear all messages for this chat/contact
+export async function DELETE(
+    request: NextRequest,
+    { params }: { params: Promise<{ sessionId: string; jid: string }> }
+) {
+    const { sessionId, jid } = await params;
+    const decodedJid = decodeURIComponent(jid);
+
+    try {
+        const user = await getAuthenticatedUser(request);
+        if (!user) {
+            return NextResponse.json({ status: false, message: "Unauthorized", error: "Unauthorized" }, { status: 401 });
+        }
+
+        // Check if user can access this session
+        const canAccess = await canAccessSession(user.id, user.role, sessionId);
+        if (!canAccess) {
+            return NextResponse.json({ status: false, message: "Forbidden - Cannot access this session", error: "Forbidden" }, { status: 403 });
+        }
+
+        // Get database Session ID
+        const session = await prisma.session.findUnique({
+            where: { sessionId },
+            select: { id: true }
+        });
+
+        if (!session) {
+            return NextResponse.json({ status: false, message: "Session not found", error: "Session not found" }, { status: 404 });
+        }
+
+        // Delete all messages for this conversation
+        const deleteResult = await prisma.message.deleteMany({
+            where: {
+                sessionId: session.id,
+                remoteJid: decodedJid
+            }
+        });
+
+        // Also if Baileys client is connected, try to notify WhatsApp chatModify
+        try {
+            const { waManager } = await import("@/modules/whatsapp/manager");
+            const instance = waManager.getInstance(sessionId);
+            if (instance?.socket) {
+                await (instance.socket as any).chatModify(
+                    { delete: true, lastMessages: [] },
+                    decodedJid
+                );
+            }
+        } catch (baileysErr) {
+            // Gracefully ignore Baileys sync issues
+            console.warn("Baileys chatModify delete warning:", baileysErr);
+        }
+
+        return NextResponse.json({
+            status: true,
+            success: true,
+            message: `Chat history cleared (${deleteResult.count} messages deleted)`,
+            count: deleteResult.count
+        });
+    } catch (error: any) {
+        console.error("Clear chat error:", error);
+        return NextResponse.json({
+            status: false,
+            message: "Failed to clear chat",
+            error: error?.message || "Failed to clear chat"
+        }, { status: 500 });
+    }
+}

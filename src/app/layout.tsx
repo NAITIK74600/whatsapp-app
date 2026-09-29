@@ -28,12 +28,13 @@ export const viewport: Viewport = {
 };
 
 export async function generateMetadata(): Promise<Metadata> {
-  let appName = "WA-AKG";
+  let appName = process.env.APP_NAME || "WhatsApp Bot";
   // Skip the DB during `next build` — the build sandbox may not reach the database.
   if (process.env.NEXT_PHASE !== "phase-production-build") {
     try {
       const config = await prisma.systemConfig.findUnique({ where: { id: "default" } });
-      if (config?.appName) appName = config.appName;
+      if (config?.appName && config.appName !== "WA-AKG") appName = config.appName;
+      else if (!config?.appName) appName = "WhatsApp Bot";
     } catch (e) {
       console.error("Failed to fetch system config for metadata:", e);
     }

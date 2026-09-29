@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,7 +44,8 @@ interface AccessEntry {
 }
 
 export default function SessionAccessPage() {
-    const { data: authSession } = useSession();
+    const { data: authSession, status } = useSession();
+    const router = useRouter();
     const searchParams = useSearchParams();
     const sessionFromUrl = searchParams.get("session") || "";
     const [sessions, setSessions] = useState<SessionInfo[]>([]);
@@ -62,6 +63,25 @@ export default function SessionAccessPage() {
     const currentUserId = authSession?.user?.id;
     // @ts-ignore
     const currentUserRole = authSession?.user?.role;
+    const isSuperAdmin = currentUserRole === "SUPERADMIN";
+
+    useEffect(() => {
+        if (status !== "loading" && !isSuperAdmin) {
+            router.replace("/dashboard");
+        }
+    }, [status, isSuperAdmin, router]);
+
+    if (status !== "loading" && !isSuperAdmin) {
+        return (
+            <div className="p-8 max-w-xl mx-auto my-12 text-center rounded-2xl bg-destructive/10 border border-destructive/20 text-destructive space-y-3">
+                <ShieldAlert className="h-10 w-10 mx-auto text-destructive" />
+                <h2 className="text-xl font-bold">Access Restricted</h2>
+                <p className="text-sm text-muted-foreground">
+                    Cross-user session delegation is restricted to Platform Super Administrators.
+                </p>
+            </div>
+        );
+    }
 
     // Fetch user's owned sessions — wait for authSession to be ready
     useEffect(() => {

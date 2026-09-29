@@ -19,6 +19,11 @@ export function ChatLayoutClient({ sessionId, initialJid }: ChatLayoutClientProp
     const [selectedChat, setSelectedChat] = useState<SelectedChat | null>(
         initialJid ? { jid: initialJid } : null
     );
+    const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+    const handleChatCleared = (jid: string) => {
+        setRefreshTrigger(prev => prev + 1);
+    };
 
     // Sync selected chat to URL pathname
     useEffect(() => {
@@ -77,6 +82,8 @@ export function ChatLayoutClient({ sessionId, initialJid }: ChatLayoutClientProp
                     sessionId={sessionId}
                     onSelectChat={handleSelectChat}
                     selectedJid={selectedChat?.jid}
+                    refreshTrigger={refreshTrigger}
+                    onChatCleared={handleChatCleared}
                 />
             </div>
 
@@ -86,10 +93,12 @@ export function ChatLayoutClient({ sessionId, initialJid }: ChatLayoutClientProp
             >
                 {selectedChat ? (
                     <ChatWindow
+                        key={`${selectedChat.jid}-${refreshTrigger}`}
                         sessionId={sessionId}
                         jid={selectedChat.jid}
                         name={selectedChat.name}
                         onBack={handleBack}
+                        onChatCleared={handleChatCleared}
                     />
                 ) : (
                     <div className="flex-1 flex items-center justify-center min-w-0 min-h-0">
@@ -105,5 +114,5 @@ export function ChatLayoutClient({ sessionId, initialJid }: ChatLayoutClientProp
                 )}
             </div>
         </div>
-    )
+    );
 }

@@ -50,6 +50,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                     setCookie("sessionId", first);
                 } else {
                     setSessionIdState("");
+                    setCookie("sessionId", "");
                 }
             }
         } catch (error) {
