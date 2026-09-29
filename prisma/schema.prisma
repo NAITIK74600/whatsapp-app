@@ -271,12 +271,15 @@ model BotConfig {
   removeBgApiKey String?
   prefix        String   @default("#")
   
-  // Anti-Spam / Rate Limit
-  antiSpamEnabled Boolean @default(false)
+  // Anti-Spam & Ban Protection
+  antiSpamEnabled Boolean @default(true)
   spamLimit       Int     @default(5)    // Messages allowed in window
   spamInterval    Int     @default(10)   // Seconds window
-  spamDelayMin    Int     @default(1000) // MS min delay
-  spamDelayMax    Int     @default(3000) // MS max delay
+  spamDelayMin    Int     @default(1500) // MS min delay
+  spamDelayMax    Int     @default(3500) // MS max delay
+  simulatePresence Boolean @default(true) // Simulate human typing (presence update) before sending
+  autoOptOut      Boolean @default(true) // Automatically respect STOP/UNSUBSCRIBE keywords and blacklist
+  dailyLimit      Int     @default(500)  // Maximum recommended messages per 24 hours
 
   // Automation & Presence
   welcomeMessage  String? @db.Text

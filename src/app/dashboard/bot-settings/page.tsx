@@ -16,7 +16,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { RefreshCw, Save, AlertCircle, Bot, X, Plus, ShieldCheck, Zap, UserCheck, MessageSquarePlus } from "lucide-react";
+import { RefreshCw, Save, AlertCircle, Bot, X, Plus, ShieldCheck, Zap, UserCheck, MessageSquarePlus, CheckCircle2, Activity } from "lucide-react";
 import { toast } from "sonner";
 import { SessionGuard } from "@/components/dashboard/session-guard";
 
@@ -34,11 +34,14 @@ export default function BotSettingsPage() {
         removeBgApiKey: "",
         botMode: "OWNER",
         autoReplyMode: "ALL",
-        antiSpamEnabled: false,
+        antiSpamEnabled: true,
         spamLimit: 5,
         spamInterval: 10,
-        spamDelayMin: 1000,
-        spamDelayMax: 3000,
+        spamDelayMin: 1500,
+        spamDelayMax: 3500,
+        simulatePresence: true,
+        autoOptOut: true,
+        dailyLimit: 500,
 
         // New fields
         welcomeMessage: "",
@@ -53,6 +56,15 @@ export default function BotSettingsPage() {
         autoReplyBlockedJids: [] as string[],
     });
     const [botLoading, setBotLoading] = useState(false);
+    const [safetyAudit, setSafetyAudit] = useState<{
+        score: number;
+        status: "OPTIMAL" | "MODERATE" | "HIGH_RISK";
+        todaySent: number;
+        dailyLimit: number;
+        optOutCount: number;
+        checks: { id: string; title: string; passed: boolean; description: string; weight: number }[];
+        recommendations: string[];
+    } | null>(null);
 
     const [newJid, setNewJid] = useState("");
 
@@ -63,8 +75,20 @@ export default function BotSettingsPage() {
     });
     const [privacyLoading, setPrivacyLoading] = useState(false);
 
+    const fetchSafety = () => {
+        if (!sessionId) return;
+        fetch(`/api/sessions/${sessionId}/safety`)
+            .then(res => res.json())
+            .then(res => {
+                if (res.data) setSafetyAudit(res.data);
+            })
+            .catch(() => {});
+    };
+
     useEffect(() => {
         if (!sessionId) return;
+
+        fetchSafety();
 
         fetch(`/api/sessions/${sessionId}/bot-config`)
             .then(res => { if (!res.ok) throw new Error(); return res.json(); })
@@ -84,6 +108,10 @@ export default function BotSettingsPage() {
                         aiEnabled: data.aiEnabled || false,
                         aiTriggerMode: data.aiTriggerMode || "FALLBACK",
                         aiSystemPrompt: data.aiSystemPrompt || "",
+                        antiSpamEnabled: data.antiSpamEnabled ?? true,
+                        simulatePresence: data.simulatePresence ?? true,
+                        autoOptOut: data.autoOptOut ?? true,
+                        dailyLimit: data.dailyLimit || 500,
                     }));
                 }
             })
@@ -104,6 +132,32 @@ export default function BotSettingsPage() {
             .catch(() => { });
     }, [sessionId]);
 
+    const applyPreset = async (preset: "ULTRA_SAFE" | "BALANCED" | "HIGH_VOLUME") => {
+        if (!sessionId) return;
+        setBotLoading(true);
+        try {
+            const res = await fetch(`/api/sessions/${sessionId}/safety`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ preset })
+            });
+            const data = await res.json();
+            if (data.status) {
+                toast.success(`Applied ${preset.replace("_", " ")} safety preset!`);
+                if (data.data) {
+                    setBotConfig(prev => ({ ...prev, ...data.data }));
+                }
+                fetchSafety();
+            } else {
+                toast.error(data.message || "Failed to apply safety preset");
+            }
+        } catch {
+            toast.error("Network error applying preset");
+        } finally {
+            setBotLoading(false);
+        }
+    };
+
     const handleSaveBot = async () => {
         if (!sessionId) return;
         setBotLoading(true);
@@ -115,9 +169,10 @@ export default function BotSettingsPage() {
             });
 
             if (res.ok) {
-                toast.success("Bot configuration saved");
+                toast.success("Bot & Safety configuration saved");
+                fetchSafety();
             } else {
-                toast.error("Failed to save bot configuration");
+                toast.error("Failed to save configuration");
             }
         } catch (e) {
             console.error(e);
@@ -453,46 +508,162 @@ export default function BotSettingsPage() {
                         </CardContent>
                     </Card>
 
-                    {/* Anti-Ban Protection */}
-                    <Card>
+                    {/* Anti-Ban & Safety Protection */}
+                    <Card className="border-orange-500/30 shadow-sm">
                         <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                                <AlertCircle className="h-5 w-5 text-orange-500" />
-                                Anti-Ban Protection (Beta)
-                            </CardTitle>
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                                <CardTitle className="flex items-center gap-2 text-orange-600 dark:text-orange-400">
+                                    <ShieldCheck className="h-5 w-5" />
+                                    WhatsApp Ban Protection & Safety Suite
+                                </CardTitle>
+                                {safetyAudit && (
+                                    <div className="flex items-center gap-2">
+                                        <span className={`text-xs px-2.5 py-1 rounded-full font-bold flex items-center gap-1 ${
+                                            safetyAudit.status === "OPTIMAL" 
+                                                ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20" 
+                                                : safetyAudit.status === "MODERATE"
+                                                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+                                                : "bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20"
+                                        }`}>
+                                            <Activity className="h-3.5 w-3.5" />
+                                            Safety Score: {safetyAudit.score}/100 ({safetyAudit.status})
+                                        </span>
+                                    </div>
+                                )}
+                            </div>
                             <CardDescription>
-                                Prevent your WhatsApp number from being detected as spam or banned by adding intelligent random delays between outgoing messages. This applies to <strong>all</strong> actions: bot replies, auto-replies, broadcasts, scheduled messages, and API calls for this session.
+                                Protect your WhatsApp number from automated detection, spam reporting, and account bans using intelligent queueing, human typing presence simulation, automatic opt-out compliance, and quota throttling.
                             </CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-6">
-                            <div className="flex items-center justify-between space-x-2 border p-3 rounded-lg bg-orange-500/5 border-orange-500/20">
-                                <Label htmlFor="anti-spam" className="flex flex-col space-y-1">
-                                    <span className="font-semibold text-orange-700 dark:text-orange-400">Enable Anti-Spam Delay</span>
-                                    <span className="font-normal text-xs text-muted-foreground">When enabled, messages will be queued and sent with a random delay if the rate limit is reached. Messages are never rejected — only delayed.</span>
+                            {/* Safety Score & Quota Overview */}
+                            {safetyAudit && (
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 rounded-xl bg-muted/40 border">
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-xs text-muted-foreground font-medium">Health Status</span>
+                                        <span className="text-base font-bold text-foreground flex items-center gap-1.5">
+                                            {safetyAudit.status === "OPTIMAL" ? (
+                                                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                                            ) : (
+                                                <AlertCircle className="h-4 w-4 text-amber-500" />
+                                            )}
+                                            {safetyAudit.status === "OPTIMAL" ? "Optimal Protection" : safetyAudit.status === "MODERATE" ? "Moderate Risk" : "High Ban Risk"}
+                                        </span>
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-xs text-muted-foreground font-medium">Today&apos;s Volume Meter</span>
+                                        <span className="text-base font-bold text-foreground">
+                                            {safetyAudit.todaySent} / {safetyAudit.dailyLimit} msgs
+                                        </span>
+                                        <div className="w-full bg-muted-foreground/20 rounded-full h-1.5 overflow-hidden mt-1">
+                                            <div 
+                                                className={`h-full rounded-full transition-all duration-300 ${
+                                                    (safetyAudit.todaySent / safetyAudit.dailyLimit) > 0.9 ? 'bg-red-500' : 'bg-emerald-500'
+                                                }`} 
+                                                style={{ width: `${Math.min(100, Math.round((safetyAudit.todaySent / safetyAudit.dailyLimit) * 100))}%` }} 
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-col gap-1">
+                                        <span className="text-xs text-muted-foreground font-medium">Opted-Out Contacts</span>
+                                        <span className="text-base font-bold text-foreground">
+                                            {safetyAudit.optOutCount} recipients
+                                        </span>
+                                        <span className="text-[11px] text-muted-foreground">Blacklisted to prevent spam reports</span>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 1-Click Quick Safety Presets */}
+                            <div className="space-y-2">
+                                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                    1-Click Ban Protection Presets
                                 </Label>
-                                <Switch id="anti-spam" checked={botConfig.antiSpamEnabled}
-                                    onCheckedChange={c => setBotConfig(prev => ({ ...prev, antiSpamEnabled: c }))} />
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="h-auto py-2.5 px-3 flex flex-col items-start gap-1 text-left border-emerald-500/30 hover:border-emerald-500 hover:bg-emerald-500/5"
+                                        onClick={() => applyPreset("ULTRA_SAFE")}
+                                        disabled={botLoading}
+                                    >
+                                        <div className="flex items-center gap-1.5 font-semibold text-xs text-emerald-600 dark:text-emerald-400">
+                                            <ShieldCheck className="h-3.5 w-3.5" />
+                                            Ultra-Safe (Warmup)
+                                        </div>
+                                        <span className="text-[11px] text-muted-foreground leading-tight">
+                                            3 msgs/15s • 3-6s delay • Max 200/day. Best for new numbers.
+                                        </span>
+                                    </Button>
+
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="h-auto py-2.5 px-3 flex flex-col items-start gap-1 text-left border-blue-500/30 hover:border-blue-500 hover:bg-blue-500/5"
+                                        onClick={() => applyPreset("BALANCED")}
+                                        disabled={botLoading}
+                                    >
+                                        <div className="flex items-center gap-1.5 font-semibold text-xs text-blue-600 dark:text-blue-400">
+                                            <Zap className="h-3.5 w-3.5" />
+                                            Standard Safe (Default)
+                                        </div>
+                                        <span className="text-[11px] text-muted-foreground leading-tight">
+                                            5 msgs/10s • 1.5-3.5s delay • Max 500/day. Recommended for normal operations.
+                                        </span>
+                                    </Button>
+
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="h-auto py-2.5 px-3 flex flex-col items-start gap-1 text-left border-purple-500/30 hover:border-purple-500 hover:bg-purple-500/5"
+                                        onClick={() => applyPreset("HIGH_VOLUME")}
+                                        disabled={botLoading}
+                                    >
+                                        <div className="flex items-center gap-1.5 font-semibold text-xs text-purple-600 dark:text-purple-400">
+                                            <Activity className="h-3.5 w-3.5" />
+                                            High Volume (Aged)
+                                        </div>
+                                        <span className="text-[11px] text-muted-foreground leading-tight">
+                                            8 msgs/10s • 1-2.5s delay • Max 1200/day. For aged active numbers.
+                                        </span>
+                                    </Button>
+                                </div>
                             </div>
 
+                            {/* Main Safety Toggles */}
+                            <div className="space-y-3">
+                                <div className="flex items-center justify-between space-x-2 border p-3 rounded-lg bg-orange-500/5 border-orange-500/20">
+                                    <Label htmlFor="anti-spam" className="flex flex-col space-y-1">
+                                        <span className="font-semibold text-orange-700 dark:text-orange-400">Enable Anti-Spam Queue & Random Jitter</span>
+                                        <span className="font-normal text-xs text-muted-foreground">Queues messages and applies intelligent random delays if outbound velocity spikes. Messages are safely throttled without being lost.</span>
+                                    </Label>
+                                    <Switch id="anti-spam" checked={botConfig.antiSpamEnabled}
+                                        onCheckedChange={c => setBotConfig(prev => ({ ...prev, antiSpamEnabled: c }))} />
+                                </div>
+
+                                <div className="flex items-center justify-between space-x-2 border p-3 rounded-lg bg-emerald-500/5 border-emerald-500/20">
+                                    <Label htmlFor="simulate-presence" className="flex flex-col space-y-1">
+                                        <span className="font-semibold text-emerald-700 dark:text-emerald-400">Simulate Human Typing Presence (&apos;composing&apos;)</span>
+                                        <span className="font-normal text-xs text-muted-foreground">Dispatches real WhatsApp typing indicators (1-2.5s) to Meta protocol servers before sending messages. Eradicates the 0ms automated bot footprint.</span>
+                                    </Label>
+                                    <Switch id="simulate-presence" checked={botConfig.simulatePresence}
+                                        onCheckedChange={c => setBotConfig(prev => ({ ...prev, simulatePresence: c }))} />
+                                </div>
+
+                                <div className="flex items-center justify-between space-x-2 border p-3 rounded-lg bg-blue-500/5 border-blue-500/20">
+                                    <Label htmlFor="auto-opt-out" className="flex flex-col space-y-1">
+                                        <span className="font-semibold text-blue-700 dark:text-blue-400">Automatic STOP / Opt-Out Compliance</span>
+                                        <span className="font-normal text-xs text-muted-foreground">Automatically respects keywords (STOP, UNSUBSCRIBE, BERHENTI, BATAL) by blacklisting contacts and sending polite unsubscribe confirmation. Slashes recipient spam reports.</span>
+                                    </Label>
+                                    <Switch id="auto-opt-out" checked={botConfig.autoOptOut}
+                                        onCheckedChange={c => setBotConfig(prev => ({ ...prev, autoOptOut: c }))} />
+                                </div>
+                            </div>
+
+                            {/* Granular Parameters */}
                             {botConfig.antiSpamEnabled && (
                                 <div className="grid gap-6 animate-in fade-in slide-in-from-top-1 duration-200">
-                                    {/* How it works */}
-                                    <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-4 space-y-2">
-                                        <p className="text-sm font-semibold text-blue-700 dark:text-blue-400">💡 How it works</p>
-                                        <p className="text-xs text-muted-foreground leading-relaxed">
-                                            The system tracks how many messages this session sends within a time window.
-                                            If the number of messages exceeds the <strong>threshold</strong> within the <strong>time window</strong>,
-                                            each subsequent message will be <strong>delayed</strong> by a random amount between <strong>Min</strong> and <strong>Max</strong> delay.
-                                            Once the time window resets (old messages expire), messages go back to normal speed.
-                                        </p>
-                                        <p className="text-xs text-muted-foreground">
-                                            <strong>Example:</strong> With threshold = <strong>{botConfig.spamLimit}</strong> and window = <strong>{botConfig.spamInterval}s</strong> →
-                                            the first {botConfig.spamLimit} messages within {botConfig.spamInterval} seconds are sent instantly.
-                                            Message #{botConfig.spamLimit + 1} and beyond will be delayed by {botConfig.spamDelayMin}ms–{botConfig.spamDelayMax}ms each.
-                                        </p>
-                                    </div>
-
-                                    <div className="grid sm:grid-cols-2 gap-4">
+                                    <div className="grid sm:grid-cols-3 gap-4">
                                         <div className="grid gap-2">
                                             <Label className="font-semibold">Messages Threshold</Label>
                                             <Input
@@ -502,8 +673,7 @@ export default function BotSettingsPage() {
                                                 min={1}
                                             />
                                             <p className="text-xs text-muted-foreground">
-                                                Number of messages allowed at full speed before delay kicks in.
-                                                <span className="text-orange-600 dark:text-orange-400"> Lower = safer but slower.</span>
+                                                Allowed at full speed before delay kicks in.
                                             </p>
                                         </div>
                                         <div className="grid gap-2">
@@ -515,15 +685,27 @@ export default function BotSettingsPage() {
                                                 min={1}
                                             />
                                             <p className="text-xs text-muted-foreground">
-                                                The rolling window to count messages. After this time passes, the counter resets naturally.
-                                                <span className="text-orange-600 dark:text-orange-400"> Longer = more conservative.</span>
+                                                Rolling window to track velocity.
+                                            </p>
+                                        </div>
+                                        <div className="grid gap-2">
+                                            <Label className="font-semibold">Daily Volume Limit</Label>
+                                            <Input
+                                                type="number"
+                                                value={botConfig.dailyLimit}
+                                                onChange={e => setBotConfig(prev => ({ ...prev, dailyLimit: parseInt(e.target.value) || 100 }))}
+                                                min={50}
+                                                step={50}
+                                            />
+                                            <p className="text-xs text-muted-foreground">
+                                                Max daily messages before safety cooldown applies.
                                             </p>
                                         </div>
                                     </div>
 
                                     <div className="grid sm:grid-cols-2 gap-4">
                                         <div className="grid gap-2">
-                                            <Label className="font-semibold">Min Delay (ms)</Label>
+                                            <Label className="font-semibold">Min Jitter Delay (ms)</Label>
                                             <Input
                                                 type="number"
                                                 value={botConfig.spamDelayMin}
@@ -532,11 +714,11 @@ export default function BotSettingsPage() {
                                                 step={100}
                                             />
                                             <p className="text-xs text-muted-foreground">
-                                                Minimum random delay applied. 1000ms = 1 second.
+                                                Minimum random delay applied. 1500ms = 1.5 seconds.
                                             </p>
                                         </div>
                                         <div className="grid gap-2">
-                                            <Label className="font-semibold">Max Delay (ms)</Label>
+                                            <Label className="font-semibold">Max Jitter Delay (ms)</Label>
                                             <Input
                                                 type="number"
                                                 value={botConfig.spamDelayMax}
@@ -545,16 +727,23 @@ export default function BotSettingsPage() {
                                                 step={100}
                                             />
                                             <p className="text-xs text-muted-foreground">
-                                                Maximum random delay applied. 3000ms = 3 seconds.
+                                                Maximum random delay applied. 3500ms = 3.5 seconds.
                                             </p>
                                         </div>
                                     </div>
 
-                                    <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-3">
-                                        <p className="text-xs text-muted-foreground">
-                                            ⚠️ <strong>Recommended safe settings:</strong> Threshold <strong>5</strong>, Window <strong>10s</strong>, Delay <strong>1000–3000ms</strong>.
-                                            For high-volume broadcasts, use Threshold <strong>3</strong> with Delay <strong>2000–5000ms</strong>.
+                                    {/* Ban Prevention Tips Banner */}
+                                    <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4 space-y-2">
+                                        <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                                            <CheckCircle2 className="h-4 w-4" />
+                                            Golden Rules for WhatsApp Account Safety
                                         </p>
+                                        <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                                            <li><strong>Warm Up Fresh Numbers:</strong> Start with &lt; 50 messages/day on new SIM cards. Double every 4 days.</li>
+                                            <li><strong>Never Blast Cold Lists:</strong> Only message users who opted in or have your number saved in their contacts.</li>
+                                            <li><strong>Respect Opt-Out:</strong> Never bypass the STOP/Unsubscribe mechanism. Recipient reports cause 95% of WhatsApp bans.</li>
+                                            <li><strong>Use Human Jitter:</strong> Fixed intervals (e.g. exactly 2.0s between each message) are detected by machine learning spam filters.</li>
+                                        </ul>
                                     </div>
                                 </div>
                             )}
@@ -562,7 +751,7 @@ export default function BotSettingsPage() {
                             <div className="pt-2">
                                 <Button onClick={handleSaveBot} disabled={botLoading || !sessionId}>
                                     {botLoading ? <RefreshCw className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                                    Save Protection Settings
+                                    Save Ban Protection Settings
                                 </Button>
                             </div>
                         </CardContent>

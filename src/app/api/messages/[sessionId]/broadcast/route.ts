@@ -1,6 +1,7 @@
 import { NextResponse, NextRequest } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { waManager } from "@/modules/whatsapp/manager";
+import { antispam } from "@/modules/whatsapp/antispam";
 import { getAuthenticatedUser, canAccessSession } from "@/lib/api-auth";
 import type { AnyMessageContent } from "@whiskeysockets/baileys";
 import { z } from "zod";
@@ -77,14 +78,64 @@ export async function POST(
             });
         }
 
-        // Process in background — update DB as we go
+        // Process in background with safety checks, bounce protection, and breather delays
         (async () => {
             let sent = 0;
             let failed = 0;
             const errors: { jid: string; error: string }[] = [];
 
+            // Pre-fetch session bot config to check opt-outs & safety
+            const sessionData = await prisma.session.findUnique({
+                where: { sessionId },
+                select: { botConfig: true }
+            });
+            const blockedJids = Array.isArray(sessionData?.botConfig?.botBlockedJids)
+                ? (sessionData!.botConfig!.botBlockedJids as string[])
+                : [];
+            const autoOptOut = sessionData?.botConfig?.autoOptOut ?? true;
+
             for (let i = 0; i < recipients.length; i++) {
                 const jid = recipients[i];
+
+                // 1. Safety Check: Filter Opted-Out Contacts
+                if (autoOptOut && blockedJids.includes(jid)) {
+                    failed++;
+                    const reason = "Skipped: recipient previously requested opt-out (STOP)";
+                    errors.push({ jid, error: reason });
+                    await prisma.broadcastRecipient.updateMany({
+                        where: { broadcastLogId: broadcastId, jid },
+                        data: { status: "failed", error: reason }
+                    });
+                    continue;
+                }
+
+                // 2. Safety Check: Verify Number on WhatsApp (Prevent Bounce Rate Ban)
+                if (instance.socket && typeof instance.socket.onWhatsApp === "function" && jid.endsWith("@s.whatsapp.net")) {
+                    try {
+                        const cleanPhone = jid.replace("@s.whatsapp.net", "");
+                        const checkResults = await instance.socket.onWhatsApp(cleanPhone);
+                        const checkResult = Array.isArray(checkResults) ? checkResults[0] : null;
+                        if (!checkResult || !checkResult.exists) {
+                            failed++;
+                            const reason = "Skipped: phone number is not registered on WhatsApp";
+                            errors.push({ jid, error: reason });
+                            await prisma.broadcastRecipient.updateMany({
+                                where: { broadcastLogId: broadcastId, jid },
+                                data: { status: "failed", error: reason }
+                            });
+                            continue;
+                        }
+                    } catch {
+                        // Verification failure non-fatal, proceed
+                    }
+                }
+
+                // 3. Human Presence Simulation (Typing...)
+                try {
+                    const textLen = (messageContent.text || "").length;
+                    await antispam.simulateHumanPresence(instance.socket, jid, textLen);
+                } catch { }
+
                 try {
                     await instance.socket!.sendMessage(jid, messageContent);
                     sent++;
@@ -127,11 +178,20 @@ export async function POST(
                     });
                 }
 
-                // Delay between sends
+                // Delay between sends with random jitter & breather pause
                 if (i < recipients.length - 1) {
-                    const baseDelay = delay || 2000;
-                    const randomDelay = baseDelay + Math.floor(Math.random() * (baseDelay * 0.5));
-                    await new Promise(r => setTimeout(r, randomDelay));
+                    // Safe minimum delay: at least 2500ms + random jitter
+                    const baseDelay = Math.max(delay || 3000, 2500);
+                    const randomDelay = baseDelay + Math.floor(Math.random() * 2000);
+                    let finalDelay = randomDelay;
+
+                    // Breather Pause: After every 15 messages, apply a 15-second cooling breather to mimic human rhythm
+                    if ((i + 1) % 15 === 0) {
+                        console.log(`[Safety] Breather cooldown (15s) applied after sending ${i + 1} broadcast messages.`);
+                        finalDelay += 15000;
+                    }
+
+                    await new Promise(r => setTimeout(r, finalDelay));
                 }
             }
 

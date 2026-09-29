@@ -11,33 +11,40 @@ const checkScheduledMessages = async () => {
             where: {
                 status: "PENDING",
                 sendAt: { lte: now }
+            },
+            include: {
+                session: {
+                    select: { id: true, sessionId: true }
+                }
             }
         });
 
         if (pendingMessages.length > 0) {
-            logger.info("Scheduler", `Found ${pendingMessages.length} pending messages.`);
+            logger.info("Scheduler", `Found ${pendingMessages.length} pending scheduled messages to process.`);
         }
 
         for (const msg of pendingMessages) {
-            const instance = waManager.getInstance(msg.sessionId);
+            // Support both session.sessionId and direct msg.sessionId
+            const targetSessionId = msg.session?.sessionId || msg.sessionId;
+            const instance = waManager.getInstance(targetSessionId);
 
-            if (instance?.socket) {
+            if (instance?.socket && instance.status === "CONNECTED") {
                 try {
                     let content: any = {};
                     if (msg.mediaUrl) {
                         const url = msg.mediaUrl;
-                        const type = msg.mediaType || 'image'; // Default to image if null
+                        const type = msg.mediaType || 'image';
 
                         const res = await fetch(url);
                         if (!res.ok) throw new Error(`Failed to fetch media from URL: ${res.status} ${res.statusText}`);
                         const buffer = Buffer.from(await res.arrayBuffer());
 
                         if (type === 'video') {
-                            content = { video: buffer, caption: msg.content };
+                            content = { video: buffer, caption: msg.content || undefined };
                         } else if (type === 'document') {
-                            content = { document: buffer, caption: msg.content, fileName: url.split('/').pop() || 'file', mimetype: 'application/octet-stream' };
+                            content = { document: buffer, caption: msg.content || undefined, fileName: url.split('/').pop() || 'file', mimetype: 'application/octet-stream' };
                         } else {
-                            content = { image: buffer, caption: msg.content };
+                            content = { image: buffer, caption: msg.content || undefined };
                         }
                     } else {
                         content = { text: msg.content };
@@ -49,18 +56,17 @@ const checkScheduledMessages = async () => {
                         where: { id: msg.id },
                         data: { status: "SENT" }
                     });
-                    logger.success("Scheduler", `Msg ${msg.id} sent to ${msg.jid}`);
+                    logger.success("Scheduler", `Scheduled msg ${msg.id} sent to ${msg.jid}`);
 
                 } catch (err) {
-                    logger.error("Scheduler", `Failed to send scheduled msg ${msg.id}`, err);
+                    logger.error("Scheduler", `Failed to send scheduled msg ${msg.id}:`, err);
                     await prisma.scheduledMessage.update({
                         where: { id: msg.id },
                         data: { status: "FAILED" }
                     });
                 }
             } else {
-                logger.warn("Scheduler", `Session ${msg.sessionId} not connected for scheduled msg ${msg.id}`);
-                // Optionally mark as failed or leave pending
+                logger.warn("Scheduler", `Session "${targetSessionId}" not connected for scheduled msg ${msg.id}. Will retry next check.`);
             }
         }
     } catch (e) {
@@ -68,12 +74,15 @@ const checkScheduledMessages = async () => {
     }
 };
 
-export function startScheduler() {
-    logger.info("Scheduler", "Starting Message Scheduler...");
+let schedulerInterval: NodeJS.Timeout | null = null;
 
-    // Run immediately on start
-    checkScheduledMessages();
+export function startScheduler() {
+    if (schedulerInterval) return;
+    logger.info("Scheduler", "Starting Message Scheduler worker (30s interval)...");
+
+    // Run first check after short delay
+    setTimeout(checkScheduledMessages, 5000);
 
     // Then run every 30 seconds
-    setInterval(checkScheduledMessages, 30 * 1000);
+    schedulerInterval = setInterval(checkScheduledMessages, 30 * 1000);
 }

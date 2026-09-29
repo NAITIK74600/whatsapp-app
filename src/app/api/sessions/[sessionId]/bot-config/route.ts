@@ -46,11 +46,14 @@ export async function GET(
             enableVideoSticker: true,
             maxStickerDuration: 10,
             prefix: "#",
-            antiSpamEnabled: false,
+            antiSpamEnabled: true,
             spamLimit: 5,
             spamInterval: 10,
-            spamDelayMin: 1000,
-            spamDelayMax: 3000,
+            spamDelayMin: 1500,
+            spamDelayMax: 3500,
+            simulatePresence: true,
+            autoOptOut: true,
+            dailyLimit: 500,
             welcomeMessage: null,
             autoRead: false,
             alwaysOnline: false,
@@ -110,11 +113,14 @@ export async function POST(
                 enableUptime: body.enableUptime ?? true,
                 removeBgApiKey: body.removeBgApiKey || null,
                 prefix: body.prefix || "#",
-                antiSpamEnabled: body.antiSpamEnabled ?? false,
+                antiSpamEnabled: body.antiSpamEnabled ?? true,
                 spamLimit: body.spamLimit || 5,
                 spamInterval: body.spamInterval || 10,
-                spamDelayMin: body.spamDelayMin || 1000,
-                spamDelayMax: body.spamDelayMax || 3000,
+                spamDelayMin: body.spamDelayMin || 1500,
+                spamDelayMax: body.spamDelayMax || 3500,
+                simulatePresence: body.simulatePresence ?? true,
+                autoOptOut: body.autoOptOut ?? true,
+                dailyLimit: body.dailyLimit || 500,
                 welcomeMessage: body.welcomeMessage || null,
                 autoRead: body.autoRead ?? false,
                 alwaysOnline: body.alwaysOnline ?? false,
@@ -142,6 +148,9 @@ export async function POST(
                 spamInterval: body.spamInterval,
                 spamDelayMin: body.spamDelayMin,
                 spamDelayMax: body.spamDelayMax,
+                simulatePresence: body.simulatePresence,
+                autoOptOut: body.autoOptOut,
+                dailyLimit: body.dailyLimit,
                 welcomeMessage: body.welcomeMessage,
                 autoRead: body.autoRead,
                 alwaysOnline: body.alwaysOnline,
@@ -150,6 +159,10 @@ export async function POST(
                 aiSystemPrompt: body.aiSystemPrompt || null,
             }
         });
+
+        // Clear antispam cache so new settings apply instantly
+        const { antispam } = await import("@/modules/whatsapp/antispam");
+        antispam.clearCache(sessionId);
 
         return NextResponse.json({ status: true, message: "Bot config updated successfully", data: config });
     } catch (error) {

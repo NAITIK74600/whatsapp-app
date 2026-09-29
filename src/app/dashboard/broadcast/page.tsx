@@ -54,7 +54,7 @@ export default function BroadcastPage() {
     const { sessionId } = useSession();
     const [contacts, setContacts] = useState("");
     const [message, setMessage] = useState("");
-    const [delay, setDelay] = useState([2000]);
+    const [delay, setDelay] = useState([3500]);
     const [loading, setLoading] = useState(false);
     const [broadcastProgress, setBroadcastProgress] = useState<BroadcastProgress | null>(null);
     const [activeTab, setActiveTab] = useState<"new" | "history">("new");
@@ -265,17 +265,24 @@ export default function BroadcastPage() {
 
                                     <div className="space-y-4 pt-4">
                                         <div className="space-y-2">
-                                            <Label>Delay: {(delay[0] / 1000).toFixed(1)}s</Label>
+                                            <div className="flex items-center justify-between">
+                                                <Label className="font-medium">Interval Delay: {(delay[0] / 1000).toFixed(1)}s</Label>
+                                                <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                                                    🛡️ Anti-Ban Protected
+                                                </span>
+                                            </div>
                                             <Slider
-                                                defaultValue={[2000]}
-                                                min={1000}
-                                                max={15000}
+                                                defaultValue={[3500]}
+                                                min={2500}
+                                                max={20000}
                                                 step={500}
                                                 value={delay}
                                                 onValueChange={setDelay}
                                                 disabled={loading}
                                             />
-                                            <p className="text-xs text-muted-foreground">Delay antar pesan (+ random).</p>
+                                            <p className="text-xs text-muted-foreground">
+                                                Applies randomized jitter, WhatsApp registration check, automatic typing simulation (&apos;composing&apos;), and opt-out filtering.
+                                            </p>
                                         </div>
 
                                         <Button

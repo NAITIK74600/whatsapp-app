@@ -107,6 +107,59 @@ export async function bindAutoReply(sock: WASocket, sessionId: string) {
 
             if (!text) continue;
 
+            // --- Automatic Safety & Compliance Opt-Out Handling ---
+            const trimmedUpper = text.trim().toUpperCase();
+            const optOutKeywords = ["STOP", "UNSUBSCRIBE", "BERHENTI", "BATAL", "CANCEL", "OPTOUT", "OPT OUT", "KELUAR"];
+            const resubscribeKeywords = ["START", "SUBSCRIBE", "DAFTAR", "MULAI", "LANJUT", "UNBLOCK"];
+
+            if (config.autoOptOut !== false && !isGroup && optOutKeywords.includes(trimmedUpper)) {
+                try {
+                    const currentBlocked: string[] = Array.isArray(config.botBlockedJids) ? [...config.botBlockedJids] : [];
+                    if (!currentBlocked.includes(senderJid)) {
+                        currentBlocked.push(senderJid);
+                        await prisma.botConfig.update({
+                            where: { id: config.id },
+                            data: {
+                                botBlockedJids: currentBlocked,
+                                autoReplyBlockedJids: currentBlocked
+                            }
+                        });
+                        config.botBlockedJids = currentBlocked;
+                        logger.info("Safety", `Contact ${senderJid} opted out of automated messages on session ${sessionId}`);
+                        await sock.sendMessage(remoteJid, {
+                            text: "✅ You have been unsubscribed from automated messages and broadcasts. Reply START to resubscribe at any time."
+                        }, { quoted: msg });
+                    }
+                } catch (optErr) {
+                    logger.error("Safety", "Error handling opt-out:", optErr);
+                }
+                continue;
+            }
+
+            if (config.autoOptOut !== false && !isGroup && resubscribeKeywords.includes(trimmedUpper)) {
+                try {
+                    const currentBlocked: string[] = Array.isArray(config.botBlockedJids) ? [...config.botBlockedJids] : [];
+                    if (currentBlocked.includes(senderJid)) {
+                        const updated = currentBlocked.filter((j: string) => j !== senderJid);
+                        await prisma.botConfig.update({
+                            where: { id: config.id },
+                            data: {
+                                botBlockedJids: updated,
+                                autoReplyBlockedJids: updated
+                            }
+                        });
+                        config.botBlockedJids = updated;
+                        logger.info("Safety", `Contact ${senderJid} resubscribed to automated messages on session ${sessionId}`);
+                        await sock.sendMessage(remoteJid, {
+                            text: "✅ You have been resubscribed to automated messages. Welcome back!"
+                        }, { quoted: msg });
+                    }
+                } catch (subErr) {
+                    logger.error("Safety", "Error handling resubscribe:", subErr);
+                }
+                continue;
+            }
+
             try {
                 // Fetch rules for this session
                 const rules = await prisma.autoReply.findMany({

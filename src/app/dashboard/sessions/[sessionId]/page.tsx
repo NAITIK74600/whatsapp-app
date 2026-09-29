@@ -180,12 +180,12 @@ export default function SessionDetailPage() {
 
     const deleteSession = async () => {
         try {
-            const res = await fetch(`/api/sessions/${sessionId}/settings`, { method: 'DELETE' });
+            const res = await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
             if (res.ok) {
-                toast.success("Session deleted");
+                toast.success("Session deleted successfully");
                 router.push("/dashboard/sessions");
             } else {
-                toast.error("Failed to delete");
+                toast.error("Failed to delete session");
             }
         } catch (e) {
             toast.error("Error deleting session");

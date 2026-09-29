@@ -55,11 +55,12 @@ app.prepare().then(() => {
   });
 
   setupSocket(io);
-  // Optional: Global instance for Baileys to emit events
   (global as any).io = io;
+  (globalThis as any).__io = io;
 
   // Initialize WhatsApp Manager
   waManager.setup(io);
+  (globalThis as any).__waManager = waManager;
   waManager.loadSessions().catch(err => logger.error("Manager", "Failed to load sessions", err));
 
   // Start Scheduler

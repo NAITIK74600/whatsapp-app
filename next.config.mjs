@@ -5,7 +5,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  serverExternalPackages: ["sharp", "bcryptjs"],
+  serverExternalPackages: [
+    "sharp",
+    "bcryptjs",
+    "systeminformation",
+    "fluent-ffmpeg",
+    "@whiskeysockets/baileys",
+    "qrcode",
+    "pino"
+  ],
   turbopack: {
     root: path.resolve(__dirname),
   },
