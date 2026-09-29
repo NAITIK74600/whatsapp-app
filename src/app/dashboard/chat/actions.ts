@@ -116,3 +116,94 @@ export async function sendMediaMessage(formData: FormData) {
         throw new Error(`Failed to send media: ${error.message}`);
     }
 }
+
+// Get contact status & AI pause state
+export async function getChatContact(sessionId: string, jid: string) {
+    const user = await getAuthenticatedUserForAction();
+    if (!user) throw new Error("Unauthorized");
+
+    const canAccess = await canAccessSession(user.id, user.role, sessionId);
+    if (!canAccess) throw new Error("Forbidden");
+
+    const session = await prisma.session.findUnique({
+        where: { sessionId },
+        select: { id: true }
+    });
+    if (!session) throw new Error("Session not found");
+
+    const contact = await prisma.contact.findFirst({
+        where: {
+            sessionId: session.id,
+            OR: [{ jid }, { remoteJidAlt: jid }]
+        },
+        select: {
+            id: true,
+            name: true,
+            notify: true,
+            leadStage: true,
+            tags: true,
+            data: true,
+            notes: true,
+        }
+    });
+
+    const contactData = (contact?.data && typeof contact.data === "object") ? (contact.data as Record<string, any>) : {};
+    return {
+        contact,
+        aiPaused: Boolean(contactData.aiPaused),
+        aiPausedReason: contactData.aiPausedReason || null,
+        aiPausedAt: contactData.aiPausedAt || null,
+    };
+}
+
+// Toggle AI bot pause status for a specific contact
+export async function toggleChatAiStatus(sessionId: string, jid: string, aiPaused: boolean) {
+    const user = await getAuthenticatedUserForAction();
+    if (!user) throw new Error("Unauthorized");
+
+    const canAccess = await canAccessSession(user.id, user.role, sessionId);
+    if (!canAccess) throw new Error("Forbidden");
+
+    const session = await prisma.session.findUnique({
+        where: { sessionId },
+        select: { id: true }
+    });
+    if (!session) throw new Error("Session not found");
+
+    const contact = await prisma.contact.findFirst({
+        where: {
+            sessionId: session.id,
+            OR: [{ jid }, { remoteJidAlt: jid }]
+        }
+    });
+
+    if (!contact) {
+        await prisma.contact.create({
+            data: {
+                sessionId: session.id,
+                jid,
+                data: {
+                    aiPaused,
+                    aiPausedAt: new Date().toISOString(),
+                    aiPausedReason: aiPaused ? "MANUAL_PAUSE_BY_AGENT" : "RESUMED_BY_AGENT"
+                }
+            }
+        });
+    } else {
+        const prevData = (contact.data && typeof contact.data === "object") ? (contact.data as Record<string, any>) : {};
+        await prisma.contact.update({
+            where: { id: contact.id },
+            data: {
+                data: {
+                    ...prevData,
+                    aiPaused,
+                    aiPausedAt: new Date().toISOString(),
+                    aiPausedReason: aiPaused ? "MANUAL_PAUSE_BY_AGENT" : "RESUMED_BY_AGENT"
+                }
+            }
+        });
+    }
+
+    return { success: true, aiPaused };
+}
+

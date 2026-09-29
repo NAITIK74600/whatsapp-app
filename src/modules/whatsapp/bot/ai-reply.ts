@@ -209,8 +209,26 @@ export async function generateAiReply({ userMessage, systemPrompt, botName, tena
                 for (const kb of kbEntries) {
                     promptParts.push(`• [${kb.category}] ${kb.title}: ${kb.content}`);
                 }
-                promptParts.push("\nImportant Rule: Answer user questions using the verified knowledge base and business profile above. If the customer asks for details outside this knowledge base, explain that you will pass their request to a human staff member.");
             }
+
+            promptParts.push(`
+--- CRITICAL ESCALATION & PAYMENT POLICIES ---
+1. PAYMENTS, BANK ACCOUNTS & TRANSACTIONS:
+   - You are an AI assistant. You CANNOT process payments, take credit cards, share banking/IBAN details, or collect down payments.
+   - When a customer wants to pay, make a deposit, or finalize a deal:
+     Warmly confirm their intent, congratulate them on selecting the vehicle/service, and explain that for their security, official invoices, contracts, and payment links are provided directly by our sales/finance team.
+     At the end of your response, add: [ESCALATE_TO_HUMAN: PAYMENT]
+2. REQUESTING A REAL PERSON / HUMAN AGENT:
+   - If the customer asks to speak with a human, agent, salesperson, manager, or real staff member (in English, German, French, or any language):
+     Politely confirm that you have flagged their conversation and an advisor will join this chat / reach out shortly to assist them personally.
+     At the end of your response, add: [ESCALATE_TO_HUMAN: AGENT_REQUEST]
+3. FINAL CONTRACTS & SPECIAL NEGOTIATIONS:
+   - You cannot negotiate unauthorized discounts or sign contracts.
+   - For special trade-in valuations, price negotiations, or signing, invite them to finalize directly with our sales team.
+     At the end of your response, add: [ESCALATE_TO_HUMAN: CONTRACT_DEAL]
+4. GENERAL UNKNOWN FACTS:
+   - If user asks about something not in the knowledge base, politely state you will have an advisor verify it for them.
+`);
         } catch (dbErr) {
             logger.error("AI", "Failed to load tenant knowledge context:", dbErr);
         }

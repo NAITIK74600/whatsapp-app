@@ -3,6 +3,7 @@ import type { WASocket } from "@whiskeysockets/baileys";
 import { normalizeMessageContent } from "@whiskeysockets/baileys";
 import { logger } from "@/lib/logger";
 import { generateAiReply, isAiConfigured } from "@/modules/whatsapp/bot/ai-reply";
+import { sendHandoffNotification } from "@/lib/notifications";
 
 // Helper for permission check
 function canAutoReply(config: any, fromMe: boolean, senderJid: string): boolean {
@@ -192,13 +193,115 @@ export async function bindAutoReply(sock: WASocket, sessionId: string) {
 
             if (!senderJid) continue;
 
+            // --- 1. HUMAN TAKEOVER AUTO-PAUSE ---
+            // If the message is fromMe (human agent/owner sent from WhatsApp phone or dashboard),
+            // auto-pause the bot for this contact so the bot doesn't talk over the human agent!
+            if (fromMe && !isGroup) {
+                try {
+                    const contact = await prisma.contact.findFirst({
+                        where: {
+                            sessionId: session.id,
+                            OR: [{ jid: remoteJid }, { remoteJidAlt: remoteJid }]
+                        }
+                    });
+                    if (contact) {
+                        const prevData = (contact.data && typeof contact.data === "object") ? (contact.data as Record<string, any>) : {};
+                        await prisma.contact.update({
+                            where: { id: contact.id },
+                            data: {
+                                data: {
+                                    ...prevData,
+                                    aiPaused: true,
+                                    aiPausedAt: new Date().toISOString(),
+                                    aiPausedReason: "HUMAN_AGENT_REPLY",
+                                    lastHumanMessageAt: new Date().toISOString()
+                                }
+                            }
+                        });
+                        logger.info("HumanTakeover", `AI paused for ${remoteJid} due to human agent reply`);
+                    }
+                } catch (takeoverErr) {
+                    logger.error("HumanTakeover", "Error recording human takeover:", takeoverErr);
+                }
+                continue;
+            }
+
             // Check Permissions
             if (!canAutoReply(config, fromMe, senderJid)) continue;
+
+            // --- 2. CHECK IF AI BOT IS PAUSED FOR THIS CONTACT ---
+            let currentContact: any = null;
+            if (!isGroup) {
+                try {
+                    currentContact = await prisma.contact.findFirst({
+                        where: {
+                            sessionId: session.id,
+                            OR: [{ jid: remoteJid }, { remoteJidAlt: remoteJid }]
+                        }
+                    });
+                    if (currentContact?.data && typeof currentContact.data === "object") {
+                        const cData = currentContact.data as Record<string, any>;
+                        if (cData.aiPaused === true) {
+                            logger.info("AutoReply", `Skipping automated reply for ${remoteJid} because bot is paused (Human Agent in charge).`);
+                            continue;
+                        }
+                    }
+                } catch (contactErr) {
+                    logger.error("AutoReply", "Error checking contact pause status:", contactErr);
+                }
+            }
 
             const content = normalizeMessageContent(msg.message);
             const text = content?.conversation || content?.extendedTextMessage?.text || "";
 
             if (!text || !text.trim()) continue;
+
+            // --- 3. EXPLICIT HUMAN ESCALATION & PAYMENT KEYWORD DETECTION ---
+            const textLower = text.toLowerCase();
+            const isEscalationRequest = !isGroup && (
+                // English
+                /\b(speak to human|talk to human|real person|human agent|real agent|talk to someone|speak with someone|speak to person|need human|call me|payment|how to pay|bank transfer|iban|credit card|down payment|sign contract|finalize purchase|deposit)\b/i.test(textLower) ||
+                // German
+                /\b(mitarbeiter|mensch|berater|menschlicher berater|echte person|mit jemandem sprechen|bezahlen|zahlung|überweisung|kreditkarte|anzahlung|vertrag unterschreiben|vertrag abschliessen|kaufvertrag)\b/i.test(textLower) ||
+                // French
+                /\b(parler à un conseiller|parler à quelqu'un|personne réelle|humain|agent humain|payer|paiement|virement|carte de crédit|acompte|signer le contrat|finaliser l'achat)\b/i.test(textLower)
+            );
+
+            if (isEscalationRequest) {
+                try {
+                    const handoffText = "👤 Thank you! For your financial security and personalized agreement, all payments, contract finalizations, and special arrangements are handled directly by our official advisors.\n\nI have notified our sales team right now — an advisor will take over this chat / reach out to you shortly!";
+                    await sock.sendMessage(remoteJid, { text: handoffText }, { quoted: msg });
+
+                    if (currentContact) {
+                        const prevData = (currentContact.data && typeof currentContact.data === "object") ? (currentContact.data as Record<string, any>) : {};
+                        await prisma.contact.update({
+                            where: { id: currentContact.id },
+                            data: {
+                                leadStage: "QUALIFIED",
+                                data: {
+                                    ...prevData,
+                                    aiPaused: true,
+                                    aiPausedAt: new Date().toISOString(),
+                                    aiPausedReason: "CUSTOMER_ESCALATION"
+                                }
+                            }
+                        });
+                    }
+
+                    await sendHandoffNotification({
+                        sessionId: session.id,
+                        tenantId: session.tenantId,
+                        customerJid: remoteJid,
+                        customerName: currentContact?.name || currentContact?.notify || msg.pushName,
+                        reason: "Customer requested human advisor / payment assistance",
+                        snippet: text
+                    });
+
+                    continue;
+                } catch (escErr: any) {
+                    logger.error("Escalation", "Error executing customer escalation:", escErr);
+                }
+            }
 
             // --- Automatic Safety & Compliance Opt-Out Handling ---
             const trimmedUpper = text.trim().toUpperCase();
@@ -340,7 +443,41 @@ export async function bindAutoReply(sock: WASocket, sessionId: string) {
                                 config: config
                             });
 
-                            const replyParts = parseResponseMessages(reply);
+                            const hasAiEscalation = /\[ESCALATE_TO_HUMAN(?::\s*[^\]]+)?\]/i.test(reply);
+                            const cleanReply = reply.replace(/\[ESCALATE_TO_HUMAN(?::\s*[^\]]+)?\]/gi, "").trim();
+
+                            if (hasAiEscalation && !isGroup) {
+                                try {
+                                    if (currentContact) {
+                                        const prevData = (currentContact.data && typeof currentContact.data === "object") ? (currentContact.data as Record<string, any>) : {};
+                                        await prisma.contact.update({
+                                            where: { id: currentContact.id },
+                                            data: {
+                                                leadStage: "QUALIFIED",
+                                                data: {
+                                                    ...prevData,
+                                                    aiPaused: true,
+                                                    aiPausedAt: new Date().toISOString(),
+                                                    aiPausedReason: "AI_ESCALATION"
+                                                }
+                                            }
+                                        });
+                                    }
+
+                                    await sendHandoffNotification({
+                                        sessionId: session.id,
+                                        tenantId: session.tenantId,
+                                        customerJid: remoteJid,
+                                        customerName: currentContact?.name || currentContact?.notify || msg.pushName,
+                                        reason: "AI escalated conversation for payment, contract, or human assistance",
+                                        snippet: text
+                                    });
+                                } catch (aiEscErr) {
+                                    logger.error("Escalation", "Error recording AI escalation:", aiEscErr);
+                                }
+                            }
+
+                            const replyParts = parseResponseMessages(cleanReply);
                             for (let p = 0; p < replyParts.length; p++) {
                                 if (p > 0) await new Promise(r => setTimeout(r, 600));
                                 await sock.sendMessage(remoteJid, { text: replyParts[p] }, p === 0 ? { quoted: msg } : {});

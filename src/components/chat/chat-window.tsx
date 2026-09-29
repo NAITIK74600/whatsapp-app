@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Send, Paperclip, ArrowLeft, FileText, Image as ImageIcon, Music, Video, Download, ArrowDown, CornerUpLeft, Copy, Trash2, Info, X } from "lucide-react";
+import { Send, Paperclip, ArrowLeft, FileText, Image as ImageIcon, Music, Video, Download, ArrowDown, CornerUpLeft, Copy, Trash2, Info, X, Bot, UserCheck, Pause, Play, AlertTriangle } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
     AlertDialog,
@@ -17,7 +18,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { getChatMessages, sendChatMessage, sendMediaMessage } from "@/app/dashboard/chat/actions";
+import { getChatMessages, sendChatMessage, sendMediaMessage, getChatContact, toggleChatAiStatus } from "@/app/dashboard/chat/actions";
 import { useSocket } from "./socket-context";
 
 interface Message {
@@ -184,6 +185,45 @@ export function ChatWindow({ sessionId, jid, name, onBack }: ChatWindowProps) {
 
     // Context menu state
     const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+
+    // AI Bot pause / Human Takeover state
+    const [aiPaused, setAiPaused] = useState(false);
+    const [aiPausedReason, setAiPausedReason] = useState<string | null>(null);
+    const [togglingAi, setTogglingAi] = useState(false);
+
+    const loadContactStatus = useCallback(async () => {
+        try {
+            const data = await getChatContact(sessionId, jid);
+            setAiPaused(data.aiPaused);
+            setAiPausedReason(data.aiPausedReason);
+        } catch {
+            // non-fatal
+        }
+    }, [sessionId, jid]);
+
+    useEffect(() => {
+        loadContactStatus();
+    }, [loadContactStatus]);
+
+    const handleToggleAi = async () => {
+        setTogglingAi(true);
+        try {
+            const newStatus = !aiPaused;
+            await toggleChatAiStatus(sessionId, jid, newStatus);
+            setAiPaused(newStatus);
+            if (newStatus) {
+                setAiPausedReason("MANUAL_PAUSE_BY_AGENT");
+                toast.info("AI Bot paused. You are now in human takeover mode.");
+            } else {
+                setAiPausedReason(null);
+                toast.success("AI Bot resumed for this chat.");
+            }
+        } catch (e: any) {
+            toast.error(e.message || "Failed to toggle AI status");
+        } finally {
+            setTogglingAi(false);
+        }
+    };
 
     const { getSocket, joinSession } = useSocket();
     const getDateLabel = useDateLabel();
@@ -406,22 +446,82 @@ export function ChatWindow({ sessionId, jid, name, onBack }: ChatWindowProps) {
             )}
 
             {/* Header */}
-            <div className="shrink-0 px-3 py-2.5 border-b bg-background/80 backdrop-blur-sm flex items-center gap-3 z-10">
-                {onBack && (
-                    <Button variant="ghost" size="icon" className="h-8 w-8 md:hidden shrink-0 text-muted-foreground hover:text-foreground" onClick={onBack}>
-                        <ArrowLeft className="h-4 w-4" />
+            <div className="shrink-0 px-3 py-2.5 border-b bg-background/80 backdrop-blur-sm flex items-center justify-between gap-3 z-10">
+                <div className="flex items-center gap-3 min-w-0">
+                    {onBack && (
+                        <Button variant="ghost" size="icon" className="h-8 w-8 md:hidden shrink-0 text-muted-foreground hover:text-foreground" onClick={onBack}>
+                            <ArrowLeft className="h-4 w-4" />
+                        </Button>
+                    )}
+                    <Avatar className="h-9 w-9 shrink-0">
+                        <AvatarFallback className="text-xs font-medium bg-gradient-to-br from-primary/20 to-blue-500/20 text-primary">
+                            {displayName.slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-semibold text-foreground truncate">{displayName}</h3>
+                            {aiPaused ? (
+                                <Badge variant="outline" className="text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 gap-1 py-0 h-4">
+                                    <UserCheck className="w-2.5 h-2.5" />
+                                    Human Mode
+                                </Badge>
+                            ) : (
+                                <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 gap-1 py-0 h-4">
+                                    <Bot className="w-2.5 h-2.5" />
+                                    AI Active
+                                </Badge>
+                            )}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground truncate">{jid}</p>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                        size="sm"
+                        variant={aiPaused ? "default" : "outline"}
+                        onClick={handleToggleAi}
+                        disabled={togglingAi}
+                        className="h-8 px-2.5 text-xs rounded-xl gap-1.5 shadow-xs"
+                    >
+                        {aiPaused ? (
+                            <>
+                                <Play className="w-3.5 h-3.5" />
+                                Resume AI
+                            </>
+                        ) : (
+                            <>
+                                <Pause className="w-3.5 h-3.5 text-amber-500" />
+                                Pause AI Bot
+                            </>
+                        )}
                     </Button>
-                )}
-                <Avatar className="h-9 w-9 shrink-0">
-                    <AvatarFallback className="text-xs font-medium bg-gradient-to-br from-primary/20 to-blue-500/20 text-primary">
-                        {displayName.slice(0, 2).toUpperCase()}
-                    </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-semibold text-foreground truncate">{displayName}</h3>
-                    <p className="text-[10px] text-muted-foreground truncate">{jid}</p>
                 </div>
             </div>
+
+            {/* Escalation / Human Takeover Banner */}
+            {aiPaused && (
+                <div className="bg-amber-500/10 border-b border-amber-500/20 px-3 py-1.5 flex items-center justify-between text-xs text-amber-700 dark:text-amber-400 z-10">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate text-[11px]">
+                            {aiPausedReason === "CUSTOMER_ESCALATION" || aiPausedReason === "AI_ESCALATION"
+                                ? "🚨 Customer requested payment / human advisor. AI is paused so you can speak directly."
+                                : "AI auto-reply is paused for this contact (Human Takeover)."}
+                        </span>
+                    </div>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleToggleAi}
+                        disabled={togglingAi}
+                        className="h-6 px-2 text-[10px] text-amber-700 dark:text-amber-300 hover:bg-amber-500/20"
+                    >
+                        Resume AI
+                    </Button>
+                </div>
+            )}
 
             {/* Messages */}
             <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 sm:px-4 py-3 min-h-0 styled-scrollbar" onScroll={handleScroll}
