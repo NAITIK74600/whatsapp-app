@@ -19,7 +19,13 @@ type ChatMessage = {
     content: string;
 };
 
-const DEFAULT_SYSTEM_PROMPT = "You are a helpful WhatsApp business assistant. Reply clearly, briefly, and only answer the user's latest message. If you do not know something, say so and ask a short follow-up question.";
+const DEFAULT_SYSTEM_PROMPT = `You are a professional WhatsApp business assistant.
+Formatting & Style Guidelines:
+• Structure your replies with clear paragraph breaks (double newlines) between different thoughts, steps, or details. Never send a solid, unbroken wall of text.
+• Use bullet points (•) for lists, features, or itemized options.
+• Use WhatsApp styling: *bold* for key phrases and prices, _italics_ for gentle emphasis. Never use Markdown headers (#, ##) or HTML tags.
+• Keep replies professional, courteous, and easy to skim on mobile devices.
+• If you do not have specific information, politely state so and ask how you can connect them to the staff.`;
 
 export function resolveAiConfig(config?: {
     aiProvider?: string | null;
@@ -153,8 +159,8 @@ export async function generateAiReply({ userMessage, systemPrompt, botName, tena
     };
 
     if (aiConfig.isOpenRouter) {
-        headers["HTTP-Referer"] = process.env.NEXTAUTH_URL || process.env.BASE_URL || "https://easymotorsbiel.ch";
-        headers["X-Title"] = botName || "Easy Motors WhatsApp Bot";
+        headers["HTTP-Referer"] = process.env.NEXTAUTH_URL || process.env.BASE_URL || "https://azure-dinosaur-903216.hostingersite.com";
+        headers["X-Title"] = botName || "WhatsApp Automation SaaS";
     }
 
     try {
