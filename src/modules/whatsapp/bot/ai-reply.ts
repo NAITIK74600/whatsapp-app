@@ -29,6 +29,7 @@ Formatting & Style Guidelines:
 
 const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 const OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions";
+const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 
 export function resolveAiConfig(config?: {
     aiProvider?: string | null;
@@ -37,35 +38,46 @@ export function resolveAiConfig(config?: {
     aiApiUrl?: string | null;
 } | null) {
     const apiKey = (config?.aiApiKey?.trim() || process.env.AI_API_KEY?.trim() || "");
-    const rawProvider = (config?.aiProvider || process.env.AI_PROVIDER || "").toLowerCase().trim();
+    const configProvider = (config?.aiProvider || "").toLowerCase().trim();
+    const envProvider = (process.env.AI_PROVIDER || "").toLowerCase().trim();
 
-    // Detect if key or explicit provider indicates OpenRouter
+    // Detect provider signatures
     const isKeyOpenRouter = apiKey.startsWith("sk-or-");
-    const isExplicitOpenRouter = rawProvider === "openrouter";
-    const isExplicitOpenAi = rawProvider === "openai";
-    const isExplicitCustom = rawProvider === "custom";
+    const isKeyGemini = apiKey.startsWith("AIzaSy");
+    const isExplicitCustom = configProvider === "custom";
+    const isExplicitOpenAi = configProvider === "openai";
+    const isExplicitOpenRouter = configProvider === "openrouter";
+    const isExplicitGemini = configProvider === "gemini" || configProvider === "google";
 
     // Determine final provider
     let provider = "openrouter";
     if (isExplicitCustom) {
         provider = "custom";
+    } else if (isExplicitGemini || isKeyGemini) {
+        provider = "gemini";
     } else if (isExplicitOpenAi) {
         provider = "openai";
     } else if (isKeyOpenRouter || isExplicitOpenRouter) {
         provider = "openrouter";
     } else if (apiKey.startsWith("sk-") && !isKeyOpenRouter) {
-        // Standard OpenAI key
+        provider = "openai";
+    } else if (envProvider === "gemini" || envProvider === "google") {
+        provider = "gemini";
+    } else if (envProvider === "openai") {
         provider = "openai";
     } else {
-        provider = rawProvider || "openrouter";
+        provider = "openrouter";
     }
 
     const isOpenRouter = provider === "openrouter" || isKeyOpenRouter;
+    const isGemini = provider === "gemini";
 
     // Determine endpoint
     let endpoint = "";
     if (provider === "custom") {
         endpoint = (config?.aiApiUrl?.trim() || process.env.AI_API_URL?.trim() || OPENAI_ENDPOINT);
+    } else if (isGemini) {
+        endpoint = GEMINI_ENDPOINT;
     } else if (isOpenRouter) {
         // OpenRouter must ALWAYS go to OpenRouter endpoint unless explicitly configured custom
         if (config?.aiApiUrl?.trim() && config.aiApiUrl.includes("openrouter.ai")) {
@@ -84,11 +96,29 @@ export function resolveAiConfig(config?: {
         endpoint = `${endpoint}chat/completions`;
     }
 
-    let model = (config?.aiModel || process.env.AI_MODEL || "").trim();
-    if (isOpenRouter) {
-        if (!model) {
+    let model = (config?.aiModel || "").trim();
+    if (!model) {
+        if (isGemini) {
+            model = "gemini-2.0-flash";
+        } else if (isOpenRouter) {
             model = "openai/gpt-4o-mini";
-        } else if (!model.includes("/")) {
+        } else {
+            model = process.env.AI_MODEL || "gpt-4o-mini";
+        }
+    }
+
+    if (isGemini) {
+        // If current model doesn't look like a gemini model (e.g. leftover gpt-4o-mini), fallback to gemini-2.0-flash
+        if (!model.toLowerCase().includes("gemini")) {
+            model = "gemini-2.0-flash";
+        } else {
+            // Strip any vendor prefix for Google AI Studio endpoint (e.g. google/gemini-2.0-flash -> gemini-2.0-flash)
+            if (model.includes("/")) {
+                model = model.split("/").pop() || "gemini-2.0-flash";
+            }
+        }
+    } else if (isOpenRouter) {
+        if (!model.includes("/")) {
             // Auto prefix well-known models if missing vendor prefix for OpenRouter
             if (model.startsWith("gpt-") || model.startsWith("o1") || model.startsWith("o3") || model.startsWith("chatgpt")) {
                 model = `openai/${model}`;
@@ -107,14 +137,10 @@ export function resolveAiConfig(config?: {
             }
         }
     } else if (provider === "openai") {
-        if (!model) {
-            model = "gpt-4o-mini";
-        } else if (model.includes("/")) {
+        if (model.includes("/")) {
             // Strip OpenRouter vendor prefix if switching back to official OpenAI (e.g. openai/gpt-4o-mini -> gpt-4o-mini)
             model = model.split("/").pop() || "gpt-4o-mini";
         }
-    } else {
-        model = model || "gpt-4o-mini";
     }
 
     const temperature = Number(process.env.AI_TEMPERATURE ?? "0.7");
@@ -123,6 +149,7 @@ export function resolveAiConfig(config?: {
     return {
         apiKey,
         isOpenRouter,
+        isGemini,
         provider,
         endpoint,
         model,
@@ -202,6 +229,10 @@ export async function generateAiReply({ userMessage, systemPrompt, botName, tena
         "Content-Type": "application/json",
     };
 
+    if (aiConfig.isGemini) {
+        headers["x-goog-api-key"] = aiConfig.apiKey;
+    }
+
     if (aiConfig.isOpenRouter) {
         headers["HTTP-Referer"] = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || process.env.BASE_URL || "https://wa-akg.com";
         headers["X-Title"] = botName || process.env.APP_NAME || "WA-AKG Bot";
@@ -227,6 +258,14 @@ export async function generateAiReply({ userMessage, systemPrompt, botName, tena
                 errorDetail = errorData?.error?.message || errorData?.message || JSON.stringify(errorData);
             } catch {
                 errorDetail = await response.text().catch(() => "");
+            }
+
+            if ((response.status === 400 || response.status === 401 || response.status === 403) && aiConfig.isGemini) {
+                throw new Error(`Google AI Studio Authentication Failed (HTTP ${response.status}): ${errorDetail || "Invalid Gemini API key. Please check your key at https://aistudio.google.com/app/apikey"}`);
+            }
+
+            if (response.status === 429 && aiConfig.isGemini) {
+                throw new Error(`Google Gemini Rate Limit Reached (HTTP 429): Free tier quota limit reached. Please retry in a few moments.`);
             }
 
             if (response.status === 401 && aiConfig.isOpenRouter) {

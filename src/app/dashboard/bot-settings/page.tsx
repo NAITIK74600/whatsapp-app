@@ -501,7 +501,13 @@ export default function BotSettingsPage() {
                                                     value={botConfig.aiProvider}
                                                     onValueChange={(v: string) => {
                                                         let defaultModel = botConfig.aiModel;
-                                                        if (v === "openrouter" && !defaultModel?.includes("/")) {
+                                                        if (v === "gemini") {
+                                                            if (!defaultModel?.toLowerCase().includes("gemini")) {
+                                                                defaultModel = "gemini-2.0-flash";
+                                                            } else if (defaultModel.includes("/")) {
+                                                                defaultModel = defaultModel.split("/").pop() || "gemini-2.0-flash";
+                                                            }
+                                                        } else if (v === "openrouter" && !defaultModel?.includes("/")) {
                                                             defaultModel = "openai/gpt-4o-mini";
                                                         } else if (v === "openai" && defaultModel?.includes("/")) {
                                                             defaultModel = defaultModel.split("/").pop() || "gpt-4o-mini";
@@ -518,27 +524,40 @@ export default function BotSettingsPage() {
                                                         <SelectValue placeholder="Select Provider" />
                                                     </SelectTrigger>
                                                     <SelectContent>
+                                                        <SelectItem value="gemini">Google Gemini (Free Tier - AI Studio)</SelectItem>
                                                         <SelectItem value="openrouter">OpenRouter (Recommended - Any Model)</SelectItem>
                                                         <SelectItem value="openai">OpenAI Official</SelectItem>
                                                         <SelectItem value="custom">Custom Compatible API</SelectItem>
                                                     </SelectContent>
                                                 </Select>
                                                 <p className="text-[10px] text-muted-foreground">
-                                                    OpenRouter gives access to GPT-4o, Claude 3.5, Gemini 2.0 Flash, Llama 3.3, and more.
+                                                    {botConfig.aiProvider === "gemini"
+                                                        ? "Google AI Studio offers a free tier (up to 1,500 requests/day, 15 RPM). No credit card required."
+                                                        : botConfig.aiProvider === "openrouter"
+                                                            ? "OpenRouter gives access to GPT-4o, Claude 3.5, Gemini 2.0 Flash, Llama 3.3, and more."
+                                                            : "Direct OpenAI API integration."}
                                                 </p>
                                             </div>
 
                                             <div className="grid gap-2">
                                                 <Label>AI Model</Label>
                                                 <Input
-                                                    placeholder={botConfig.aiProvider === "openrouter" ? "e.g. openai/gpt-4o-mini or google/gemini-2.0-flash-001" : "gpt-4o-mini"}
+                                                    placeholder={
+                                                        botConfig.aiProvider === "gemini"
+                                                            ? "gemini-2.0-flash (Recommended) or gemini-1.5-flash"
+                                                            : botConfig.aiProvider === "openrouter"
+                                                                ? "e.g. openai/gpt-4o-mini or google/gemini-2.0-flash-001"
+                                                                : "gpt-4o-mini"
+                                                    }
                                                     value={botConfig.aiModel}
                                                     onChange={(e) => setBotConfig(prev => ({ ...prev, aiModel: e.target.value }))}
                                                 />
                                                 <p className="text-[10px] text-muted-foreground">
-                                                    {botConfig.aiProvider === "openrouter"
-                                                        ? "Examples: openai/gpt-4o-mini, google/gemini-2.0-flash-001, meta-llama/llama-3.3-70b-instruct"
-                                                        : "Default: gpt-4o-mini"}
+                                                    {botConfig.aiProvider === "gemini"
+                                                        ? "Recommended free models: gemini-2.0-flash, gemini-1.5-flash, gemini-1.5-pro"
+                                                        : botConfig.aiProvider === "openrouter"
+                                                            ? "Examples: openai/gpt-4o-mini, google/gemini-2.0-flash-001, meta-llama/llama-3.3-70b-instruct"
+                                                            : "Default: gpt-4o-mini"}
                                                 </p>
                                             </div>
                                         </div>
@@ -553,14 +572,23 @@ export default function BotSettingsPage() {
                                             <div className="relative">
                                                 <Input
                                                     type={showApiKey ? "text" : "password"}
-                                                    placeholder={botConfig.aiProvider === "openrouter" ? "sk-or-v1-..." : "sk-..."}
+                                                    placeholder={
+                                                        botConfig.aiProvider === "gemini"
+                                                            ? "AIzaSy... (Paste Google AI Studio Key)"
+                                                            : botConfig.aiProvider === "openrouter"
+                                                                ? "sk-or-v1-..."
+                                                                : "sk-..."
+                                                    }
                                                     value={botConfig.aiApiKey}
                                                     onChange={(e) => {
                                                         const val = e.target.value;
                                                         const trimmed = val.trim();
                                                         setBotConfig(prev => {
                                                             const next = { ...prev, aiApiKey: val };
-                                                            if (trimmed.startsWith("sk-or-") && prev.aiProvider !== "openrouter") {
+                                                            if (trimmed.startsWith("AIzaSy") && prev.aiProvider !== "gemini") {
+                                                                next.aiProvider = "gemini";
+                                                                next.aiModel = "gemini-2.0-flash";
+                                                            } else if (trimmed.startsWith("sk-or-") && prev.aiProvider !== "openrouter") {
                                                                 next.aiProvider = "openrouter";
                                                                 if (!prev.aiModel?.includes("/")) {
                                                                     next.aiModel = "openai/gpt-4o-mini";
@@ -581,9 +609,23 @@ export default function BotSettingsPage() {
                                                     {showApiKey ? <EyeOff className="h-4 w-4 text-muted-foreground" /> : <Eye className="h-4 w-4 text-muted-foreground" />}
                                                 </Button>
                                             </div>
-                                            <p className="text-[10px] text-muted-foreground">
-                                                Keys starting with <code className="bg-muted px-1 rounded">sk-or-</code> are automatically connected to OpenRouter with all required HTTP headers.
-                                            </p>
+                                            {botConfig.aiProvider === "gemini" ? (
+                                                <p className="text-[10px] text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                                                    <span>Get your free Gemini API key:</span>
+                                                    <a
+                                                        href="https://aistudio.google.com/app/apikey"
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-primary underline font-medium hover:opacity-80"
+                                                    >
+                                                        Google AI Studio (100% Free) &rarr;
+                                                    </a>
+                                                </p>
+                                            ) : (
+                                                <p className="text-[10px] text-muted-foreground">
+                                                    Keys starting with <code className="bg-muted px-1 rounded">sk-or-</code> auto-connect to OpenRouter; keys starting with <code className="bg-muted px-1 rounded">AIzaSy</code> connect to Google Gemini.
+                                                </p>
+                                            )}
                                         </div>
 
                                         {botConfig.aiProvider === "custom" && (
