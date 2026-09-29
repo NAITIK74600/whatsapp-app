@@ -185,8 +185,8 @@ export async function generateAiReply({ userMessage, systemPrompt, botName, tena
                 prisma.tenant.findUnique({ where: { id: tenantId } }).catch(() => null),
                 prisma.knowledgeEntry.findMany({
                     where: { tenantId, isVerified: true },
-                    take: 25,
-                    orderBy: { category: "asc" }
+                    take: 100,
+                    orderBy: [{ category: "asc" }, { updatedAt: "desc" }]
                 }).catch(() => [])
             ]);
 

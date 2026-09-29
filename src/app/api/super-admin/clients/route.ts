@@ -293,7 +293,16 @@ export async function POST(request: NextRequest) {
         });
 
         // Format onboarding message
-        const origin = request.nextUrl.origin || "https://azure-dinosaur-903216.hostingersite.com";
+        const configuredBase = process.env.BASE_URL || process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL;
+        let origin = "";
+        if (configuredBase && !configuredBase.includes("localhost")) {
+            origin = configuredBase.replace(/\/$/, "");
+        } else {
+            origin = request.nextUrl.origin ? request.nextUrl.origin.replace(/\/$/, "") : "http://localhost:3000";
+            if (origin.startsWith("https://localhost")) {
+                origin = origin.replace("https://", "http://");
+            }
+        }
         const loginUrl = `${origin}/auth/login`;
 
         const onboardingMessage = `🎉 Welcome to your WhatsApp Automation Workspace!

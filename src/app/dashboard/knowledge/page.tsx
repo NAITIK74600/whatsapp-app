@@ -14,7 +14,12 @@ import {
     Wrench, 
     FileText, 
     Check, 
-    RefreshCw 
+    RefreshCw,
+    Sparkles,
+    Globe,
+    CheckSquare,
+    Square,
+    ArrowRight
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -50,6 +55,14 @@ interface KnowledgeItem {
     updatedAt: string;
 }
 
+interface ScrapedItem {
+    category: string;
+    title: string;
+    content: string;
+    sourceUrl: string;
+    selected: boolean;
+}
+
 export default function KnowledgeBasePage() {
     const [entries, setEntries] = useState<KnowledgeItem[]>([]);
     const [loading, setLoading] = useState(true);
@@ -70,6 +83,13 @@ export default function KnowledgeBasePage() {
 
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [deleting, setDeleting] = useState(false);
+
+    // AI Website Scraper State
+    const [scrapeModalOpen, setScrapeModalOpen] = useState(false);
+    const [scrapeUrl, setScrapeUrl] = useState("");
+    const [scraping, setScraping] = useState(false);
+    const [scrapedItems, setScrapedItems] = useState<ScrapedItem[]>([]);
+    const [importingBatch, setImportingBatch] = useState(false);
 
     const fetchEntries = async () => {
         setLoading(true);
@@ -174,6 +194,83 @@ export default function KnowledgeBasePage() {
         }
     };
 
+    const handleScrapeWebsite = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!scrapeUrl.trim()) {
+            toast.error("Please enter a valid website URL");
+            return;
+        }
+
+        setScraping(true);
+        try {
+            const res = await fetch("/api/knowledge/scrape", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ url: scrapeUrl.trim() })
+            });
+
+            const data = await res.json();
+            if (data.success && data.data?.entries) {
+                const mapped: ScrapedItem[] = data.data.entries.map((item: any) => ({
+                    category: item.category || "GENERAL",
+                    title: item.title || "Untitled Item",
+                    content: item.content || "",
+                    sourceUrl: item.sourceUrl || scrapeUrl.trim(),
+                    selected: true
+                }));
+                setScrapedItems(mapped);
+                toast.success(`AI extracted ${mapped.length} facts & products from website!`);
+            } else {
+                toast.error(data.message || "Failed to analyze website");
+            }
+        } catch (err: any) {
+            toast.error(err.message || "Network error scraping website");
+        } finally {
+            setScraping(false);
+        }
+    };
+
+    const toggleItemSelection = (index: number) => {
+        setScrapedItems(prev => prev.map((item, idx) => idx === index ? { ...item, selected: !item.selected } : item));
+    };
+
+    const toggleSelectAll = () => {
+        const allSelected = scrapedItems.every(i => i.selected);
+        setScrapedItems(prev => prev.map(item => ({ ...item, selected: !allSelected })));
+    };
+
+    const handleImportSelected = async () => {
+        const selected = scrapedItems.filter(i => i.selected);
+        if (selected.length === 0) {
+            toast.error("Please select at least one item to import");
+            return;
+        }
+
+        setImportingBatch(true);
+        try {
+            const res = await fetch("/api/knowledge/batch", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ entries: selected })
+            });
+
+            const data = await res.json();
+            if (data.success) {
+                toast.success(`Successfully imported ${data.data?.importedCount || selected.length} entries!`);
+                setScrapeModalOpen(false);
+                setScrapedItems([]);
+                setScrapeUrl("");
+                fetchEntries();
+            } else {
+                toast.error(data.message || "Failed to import entries");
+            }
+        } catch (err: any) {
+            toast.error(err.message || "Network error importing entries");
+        } finally {
+            setImportingBatch(false);
+        }
+    };
+
     const getCategoryIcon = (cat: string) => {
         switch (cat) {
             case "FAQ": return <HelpCircle className="h-4 w-4 text-primary" />;
@@ -193,13 +290,26 @@ export default function KnowledgeBasePage() {
                         Train your AI bot with business facts, FAQs, product catalogs, pricing and policy guidelines.
                     </p>
                 </div>
-                <Button 
-                    onClick={handleOpenAdd}
-                    className="rounded-xl shadow-md shadow-primary/20 shrink-0"
-                >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Knowledge Entry
-                </Button>
+                <div className="flex items-center gap-2 flex-wrap">
+                    <Button 
+                        onClick={() => {
+                            setScrapeModalOpen(true);
+                            setScrapedItems([]);
+                        }}
+                        variant="outline"
+                        className="rounded-xl border-primary/40 text-primary hover:bg-primary/10 shadow-sm shrink-0 gap-1.5"
+                    >
+                        <Sparkles className="h-4 w-4 text-primary" />
+                        AI Website Import
+                    </Button>
+                    <Button 
+                        onClick={handleOpenAdd}
+                        className="rounded-xl shadow-md shadow-primary/20 shrink-0"
+                    >
+                        <Plus className="h-4 w-4 mr-2" />
+                        Add Knowledge Entry
+                    </Button>
+                </div>
             </div>
 
             {/* Filter Tabs & Search */}
@@ -437,6 +547,166 @@ export default function KnowledgeBasePage() {
                             {deleting ? "Deleting..." : "Delete Entry"}
                         </Button>
                     </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* AI WEBSITE SCRAPER MODAL */}
+            <Dialog open={scrapeModalOpen} onOpenChange={setScrapeModalOpen}>
+                <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col rounded-2xl p-6">
+                    <DialogHeader>
+                        <div className="flex items-center gap-2 text-primary mb-1">
+                            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                                <Sparkles className="w-4 h-4 text-primary" />
+                            </div>
+                            <DialogTitle className="text-lg font-bold">
+                                AI Website Product &amp; Knowledge Extractor
+                            </DialogTitle>
+                        </div>
+                        <DialogDescription className="text-xs">
+                            Enter any website URL to automatically extract products, services, pricing, operating hours, and FAQs for your WhatsApp bot.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    {/* URL Input Form */}
+                    <form onSubmit={handleScrapeWebsite} className="flex gap-2 pt-2">
+                        <div className="relative flex-1">
+                            <Globe className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                                placeholder="e.g. https://easymotorsbiel.ch or your store website"
+                                value={scrapeUrl}
+                                onChange={(e) => setScrapeUrl(e.target.value)}
+                                disabled={scraping}
+                                className="pl-9 rounded-xl border-border/60"
+                            />
+                        </div>
+                        <Button 
+                            type="submit" 
+                            disabled={scraping || !scrapeUrl.trim()}
+                            className="rounded-xl gap-2 font-medium"
+                        >
+                            {scraping ? (
+                                <>
+                                    <RefreshCw className="w-4 h-4 animate-spin" />
+                                    Analyzing Website...
+                                </>
+                            ) : (
+                                <>
+                                    <Sparkles className="w-4 h-4" />
+                                    Extract Data
+                                </>
+                            )}
+                        </Button>
+                    </form>
+
+                    {/* Scraped Results View */}
+                    {scrapedItems.length > 0 ? (
+                        <div className="flex flex-col flex-1 min-h-0 pt-3">
+                            <div className="flex items-center justify-between py-2 border-b border-border/40 text-xs">
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={toggleSelectAll}
+                                        className="h-7 px-2 text-xs gap-1.5"
+                                    >
+                                        {scrapedItems.every(i => i.selected) ? (
+                                            <CheckSquare className="w-3.5 h-3.5 text-primary" />
+                                        ) : (
+                                            <Square className="w-3.5 h-3.5 text-muted-foreground" />
+                                        )}
+                                        {scrapedItems.every(i => i.selected) ? "Deselect All" : "Select All"}
+                                    </Button>
+                                    <span className="text-muted-foreground">
+                                        ({scrapedItems.filter(i => i.selected).length} of {scrapedItems.length} selected)
+                                    </span>
+                                </div>
+                                <span className="text-[11px] text-muted-foreground font-mono">
+                                    Ready to import
+                                </span>
+                            </div>
+
+                            <div className="overflow-y-auto max-h-[350px] space-y-2 py-3 pr-1">
+                                {scrapedItems.map((item, idx) => (
+                                    <div
+                                        key={idx}
+                                        onClick={() => toggleItemSelection(idx)}
+                                        className={`p-3 rounded-xl border transition-all cursor-pointer text-left ${
+                                            item.selected 
+                                                ? "border-primary/40 bg-primary/[0.03] shadow-sm" 
+                                                : "border-border/40 bg-muted/20 opacity-60 hover:opacity-90"
+                                        }`}
+                                    >
+                                        <div className="flex items-start gap-2.5">
+                                            <button 
+                                                type="button" 
+                                                onClick={(e) => { e.stopPropagation(); toggleItemSelection(idx); }}
+                                                className="mt-0.5"
+                                            >
+                                                {item.selected ? (
+                                                    <CheckSquare className="w-4 h-4 text-primary" />
+                                                ) : (
+                                                    <Square className="w-4 h-4 text-muted-foreground" />
+                                                )}
+                                            </button>
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <Badge variant="outline" className="text-[10px] uppercase font-bold py-0 h-4 border-primary/30 text-primary">
+                                                        {item.category}
+                                                    </Badge>
+                                                    <span className="font-semibold text-xs truncate">
+                                                        {item.title}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[11px] text-muted-foreground line-clamp-2 leading-relaxed">
+                                                    {item.content}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <DialogFooter className="pt-3 border-t border-border/40">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => setScrapeModalOpen(false)}
+                                    className="rounded-xl"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    onClick={handleImportSelected}
+                                    disabled={importingBatch || scrapedItems.filter(i => i.selected).length === 0}
+                                    className="rounded-xl gap-2 font-medium shadow-md shadow-primary/20"
+                                >
+                                    {importingBatch ? (
+                                        <>
+                                            <RefreshCw className="w-4 h-4 animate-spin" />
+                                            Importing...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Check className="w-4 h-4" />
+                                            Import {scrapedItems.filter(i => i.selected).length} Items to Bot
+                                        </>
+                                    )}
+                                </Button>
+                            </DialogFooter>
+                        </div>
+                    ) : (
+                        <div className="py-10 text-center flex flex-col items-center justify-center space-y-3">
+                            <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                                <Globe className="w-6 h-6" />
+                            </div>
+                            <div className="max-w-sm">
+                                <p className="text-sm font-semibold">Automatic Knowledge Gathering</p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Paste your website link above and click <strong>Extract Data</strong>. Gemini AI will analyze your product catalog, service list, vehicle inventory, prices, policies, and address details.
+                                </p>
+                            </div>
+                        </div>
+                    )}
                 </DialogContent>
             </Dialog>
         </div>
