@@ -99,7 +99,7 @@ export function resolveAiConfig(config?: {
     let model = (config?.aiModel || "").trim();
     if (!model) {
         if (isGemini) {
-            model = "gemini-2.0-flash";
+            model = "gemini-2.5-flash";
         } else if (isOpenRouter) {
             model = "openai/gpt-4o-mini";
         } else {
@@ -108,13 +108,16 @@ export function resolveAiConfig(config?: {
     }
 
     if (isGemini) {
-        // If current model doesn't look like a gemini model (e.g. leftover gpt-4o-mini), fallback to gemini-2.0-flash
-        if (!model.toLowerCase().includes("gemini")) {
-            model = "gemini-2.0-flash";
+        // If current model doesn't look like a gemini model (e.g. leftover gpt-4o-mini) or is retired 2.0, fallback to gemini-2.5-flash
+        if (!model.toLowerCase().includes("gemini") || model === "gemini-2.0-flash") {
+            model = "gemini-2.5-flash";
         } else {
-            // Strip any vendor prefix for Google AI Studio endpoint (e.g. google/gemini-2.0-flash -> gemini-2.0-flash)
+            // Strip any vendor prefix for Google AI Studio endpoint (e.g. google/gemini-2.5-flash -> gemini-2.5-flash)
             if (model.includes("/")) {
-                model = model.split("/").pop() || "gemini-2.0-flash";
+                model = model.split("/").pop() || "gemini-2.5-flash";
+            }
+            if (model === "gemini-2.0-flash") {
+                model = "gemini-2.5-flash";
             }
         }
     } else if (isOpenRouter) {

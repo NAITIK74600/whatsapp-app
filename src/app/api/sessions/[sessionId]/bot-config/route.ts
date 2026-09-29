@@ -134,7 +134,7 @@ export async function POST(
                 aiTriggerMode: body.aiTriggerMode || "FALLBACK",
                 aiProvider: body.aiProvider || "openrouter",
                 aiApiKey: body.aiApiKey || null,
-                aiModel: body.aiModel || (body.aiProvider === "gemini" ? "gemini-2.0-flash" : body.aiProvider === "openrouter" ? "openai/gpt-4o-mini" : "gpt-4o-mini"),
+                aiModel: body.aiModel || (body.aiProvider === "gemini" ? "gemini-2.5-flash" : body.aiProvider === "openrouter" ? "openai/gpt-4o-mini" : "gpt-4o-mini"),
                 aiApiUrl: body.aiProvider === "custom" ? (body.aiApiUrl || null) : null,
                 aiSystemPrompt: body.aiSystemPrompt || null,
             },

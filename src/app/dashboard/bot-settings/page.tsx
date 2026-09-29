@@ -502,10 +502,10 @@ export default function BotSettingsPage() {
                                                     onValueChange={(v: string) => {
                                                         let defaultModel = botConfig.aiModel;
                                                         if (v === "gemini") {
-                                                            if (!defaultModel?.toLowerCase().includes("gemini")) {
-                                                                defaultModel = "gemini-2.0-flash";
+                                                            if (!defaultModel?.toLowerCase().includes("gemini") || defaultModel === "gemini-2.0-flash") {
+                                                                defaultModel = "gemini-2.5-flash";
                                                             } else if (defaultModel.includes("/")) {
-                                                                defaultModel = defaultModel.split("/").pop() || "gemini-2.0-flash";
+                                                                defaultModel = defaultModel.split("/").pop() || "gemini-2.5-flash";
                                                             }
                                                         } else if (v === "openrouter" && !defaultModel?.includes("/")) {
                                                             defaultModel = "openai/gpt-4o-mini";
@@ -544,7 +544,7 @@ export default function BotSettingsPage() {
                                                 <Input
                                                     placeholder={
                                                         botConfig.aiProvider === "gemini"
-                                                            ? "gemini-2.0-flash (Recommended) or gemini-1.5-flash"
+                                                            ? "gemini-2.5-flash (Recommended) or gemini-1.5-flash"
                                                             : botConfig.aiProvider === "openrouter"
                                                                 ? "e.g. openai/gpt-4o-mini or google/gemini-2.0-flash-001"
                                                                 : "gpt-4o-mini"
@@ -554,7 +554,7 @@ export default function BotSettingsPage() {
                                                 />
                                                 <p className="text-[10px] text-muted-foreground">
                                                     {botConfig.aiProvider === "gemini"
-                                                        ? "Recommended free models: gemini-2.0-flash, gemini-1.5-flash, gemini-1.5-pro"
+                                                        ? "Recommended free models: gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.5-pro"
                                                         : botConfig.aiProvider === "openrouter"
                                                             ? "Examples: openai/gpt-4o-mini, google/gemini-2.0-flash-001, meta-llama/llama-3.3-70b-instruct"
                                                             : "Default: gpt-4o-mini"}
@@ -587,7 +587,7 @@ export default function BotSettingsPage() {
                                                             const next = { ...prev, aiApiKey: val };
                                                             if (trimmed.startsWith("AIzaSy") && prev.aiProvider !== "gemini") {
                                                                 next.aiProvider = "gemini";
-                                                                next.aiModel = "gemini-2.0-flash";
+                                                                next.aiModel = "gemini-2.5-flash";
                                                             } else if (trimmed.startsWith("sk-or-") && prev.aiProvider !== "openrouter") {
                                                                 next.aiProvider = "openrouter";
                                                                 if (!prev.aiModel?.includes("/")) {
