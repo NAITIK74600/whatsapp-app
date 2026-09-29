@@ -236,7 +236,7 @@ export default function BotSettingsPage() {
                     aiProvider: botConfig.aiProvider,
                     aiApiKey: botConfig.aiApiKey,
                     aiModel: botConfig.aiModel,
-                    aiApiUrl: botConfig.aiApiUrl,
+                    aiApiUrl: botConfig.aiProvider === "custom" ? botConfig.aiApiUrl : "",
                 })
             });
             const data = await res.json();
@@ -503,8 +503,15 @@ export default function BotSettingsPage() {
                                                         let defaultModel = botConfig.aiModel;
                                                         if (v === "openrouter" && !defaultModel?.includes("/")) {
                                                             defaultModel = "openai/gpt-4o-mini";
+                                                        } else if (v === "openai" && defaultModel?.includes("/")) {
+                                                            defaultModel = defaultModel.split("/").pop() || "gpt-4o-mini";
                                                         }
-                                                        setBotConfig(prev => ({ ...prev, aiProvider: v, aiModel: defaultModel }));
+                                                        setBotConfig(prev => ({
+                                                            ...prev,
+                                                            aiProvider: v,
+                                                            aiModel: defaultModel,
+                                                            aiApiUrl: v === "custom" ? prev.aiApiUrl : ""
+                                                        }));
                                                     }}
                                                 >
                                                     <SelectTrigger>
@@ -548,7 +555,20 @@ export default function BotSettingsPage() {
                                                     type={showApiKey ? "text" : "password"}
                                                     placeholder={botConfig.aiProvider === "openrouter" ? "sk-or-v1-..." : "sk-..."}
                                                     value={botConfig.aiApiKey}
-                                                    onChange={(e) => setBotConfig(prev => ({ ...prev, aiApiKey: e.target.value }))}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        const trimmed = val.trim();
+                                                        setBotConfig(prev => {
+                                                            const next = { ...prev, aiApiKey: val };
+                                                            if (trimmed.startsWith("sk-or-") && prev.aiProvider !== "openrouter") {
+                                                                next.aiProvider = "openrouter";
+                                                                if (!prev.aiModel?.includes("/")) {
+                                                                    next.aiModel = "openai/gpt-4o-mini";
+                                                                }
+                                                            }
+                                                            return next;
+                                                        });
+                                                    }}
                                                     className="pr-10 font-mono text-xs"
                                                 />
                                                 <Button

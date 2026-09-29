@@ -134,8 +134,8 @@ export async function POST(
                 aiTriggerMode: body.aiTriggerMode || "FALLBACK",
                 aiProvider: body.aiProvider || "openrouter",
                 aiApiKey: body.aiApiKey || null,
-                aiModel: body.aiModel || "openai/gpt-4o-mini",
-                aiApiUrl: body.aiApiUrl || null,
+                aiModel: body.aiModel || (body.aiProvider === "openrouter" ? "openai/gpt-4o-mini" : "gpt-4o-mini"),
+                aiApiUrl: body.aiProvider === "custom" ? (body.aiApiUrl || null) : null,
                 aiSystemPrompt: body.aiSystemPrompt || null,
             },
             update: {
@@ -170,7 +170,7 @@ export async function POST(
                 aiProvider: body.aiProvider,
                 aiApiKey: body.aiApiKey,
                 aiModel: body.aiModel,
-                aiApiUrl: body.aiApiUrl,
+                aiApiUrl: body.aiProvider === "custom" ? (body.aiApiUrl || null) : null,
                 aiSystemPrompt: body.aiSystemPrompt || null,
             }
         });

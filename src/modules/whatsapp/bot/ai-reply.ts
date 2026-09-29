@@ -27,6 +27,9 @@ Formatting & Style Guidelines:
 • Keep replies professional, courteous, and easy to skim on mobile devices.
 • If you do not have specific information, politely state so and ask how you can connect them to the staff.`;
 
+const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
+const OPENAI_ENDPOINT = "https://api.openai.com/v1/chat/completions";
+
 export function resolveAiConfig(config?: {
     aiProvider?: string | null;
     aiApiKey?: string | null;
@@ -35,22 +38,50 @@ export function resolveAiConfig(config?: {
 } | null) {
     const apiKey = (config?.aiApiKey?.trim() || process.env.AI_API_KEY?.trim() || "");
     const rawProvider = (config?.aiProvider || process.env.AI_PROVIDER || "").toLowerCase().trim();
-    const rawUrl = (config?.aiApiUrl || process.env.AI_API_URL || "").trim();
-    
-    // Auto-detect OpenRouter: starts with sk-or-, provider is openrouter, or URL mentions openrouter
-    const isOpenRouter = apiKey.startsWith("sk-or-") || rawProvider === "openrouter" || rawUrl.includes("openrouter.ai");
 
-    let endpoint = rawUrl;
-    if (!endpoint) {
-        endpoint = isOpenRouter 
-            ? "https://openrouter.ai/api/v1/chat/completions" 
-            : "https://api.openai.com/v1/chat/completions";
+    // Detect if key or explicit provider indicates OpenRouter
+    const isKeyOpenRouter = apiKey.startsWith("sk-or-");
+    const isExplicitOpenRouter = rawProvider === "openrouter";
+    const isExplicitOpenAi = rawProvider === "openai";
+    const isExplicitCustom = rawProvider === "custom";
+
+    // Determine final provider
+    let provider = "openrouter";
+    if (isExplicitCustom) {
+        provider = "custom";
+    } else if (isExplicitOpenAi) {
+        provider = "openai";
+    } else if (isKeyOpenRouter || isExplicitOpenRouter) {
+        provider = "openrouter";
+    } else if (apiKey.startsWith("sk-") && !isKeyOpenRouter) {
+        // Standard OpenAI key
+        provider = "openai";
     } else {
-        if (endpoint.endsWith("/v1")) {
-            endpoint = `${endpoint}/chat/completions`;
-        } else if (endpoint.endsWith("/v1/")) {
-            endpoint = `${endpoint}chat/completions`;
+        provider = rawProvider || "openrouter";
+    }
+
+    const isOpenRouter = provider === "openrouter" || isKeyOpenRouter;
+
+    // Determine endpoint
+    let endpoint = "";
+    if (provider === "custom") {
+        endpoint = (config?.aiApiUrl?.trim() || process.env.AI_API_URL?.trim() || OPENAI_ENDPOINT);
+    } else if (isOpenRouter) {
+        // OpenRouter must ALWAYS go to OpenRouter endpoint unless explicitly configured custom
+        if (config?.aiApiUrl?.trim() && config.aiApiUrl.includes("openrouter.ai")) {
+            endpoint = config.aiApiUrl.trim();
+        } else {
+            endpoint = OPENROUTER_ENDPOINT;
         }
+    } else {
+        // OpenAI
+        endpoint = OPENAI_ENDPOINT;
+    }
+
+    if (endpoint.endsWith("/v1")) {
+        endpoint = `${endpoint}/chat/completions`;
+    } else if (endpoint.endsWith("/v1/")) {
+        endpoint = `${endpoint}chat/completions`;
     }
 
     let model = (config?.aiModel || process.env.AI_MODEL || "").trim();
@@ -67,7 +98,20 @@ export function resolveAiConfig(config?: {
                 model = `google/${model}`;
             } else if (model.startsWith("llama-")) {
                 model = `meta-llama/${model}`;
+            } else if (model.startsWith("deepseek-")) {
+                model = `deepseek/${model}`;
+            } else if (model.startsWith("mistral-")) {
+                model = `mistralai/${model}`;
+            } else if (model.startsWith("qwen-") || model.startsWith("qwen")) {
+                model = `qwen/${model}`;
             }
+        }
+    } else if (provider === "openai") {
+        if (!model) {
+            model = "gpt-4o-mini";
+        } else if (model.includes("/")) {
+            // Strip OpenRouter vendor prefix if switching back to official OpenAI (e.g. openai/gpt-4o-mini -> gpt-4o-mini)
+            model = model.split("/").pop() || "gpt-4o-mini";
         }
     } else {
         model = model || "gpt-4o-mini";
@@ -79,7 +123,7 @@ export function resolveAiConfig(config?: {
     return {
         apiKey,
         isOpenRouter,
-        provider: isOpenRouter ? "openrouter" : (rawProvider || "openai"),
+        provider,
         endpoint,
         model,
         temperature: Number.isFinite(temperature) ? Math.min(Math.max(temperature, 0), 2) : 0.7,
@@ -109,7 +153,7 @@ export async function generateAiReply({ userMessage, systemPrompt, botName, tena
         try {
             const [tenant, kbEntries] = await Promise.all([
                 prisma.tenant.findUnique({ where: { id: tenantId } }).catch(() => null),
-                prisma.knowledgeEntry.findMany({ 
+                prisma.knowledgeEntry.findMany({
                     where: { tenantId, isVerified: true },
                     take: 25,
                     orderBy: { category: "asc" }
@@ -159,8 +203,8 @@ export async function generateAiReply({ userMessage, systemPrompt, botName, tena
     };
 
     if (aiConfig.isOpenRouter) {
-        headers["HTTP-Referer"] = process.env.NEXTAUTH_URL || process.env.BASE_URL || "https://azure-dinosaur-903216.hostingersite.com";
-        headers["X-Title"] = botName || "WhatsApp Automation SaaS";
+        headers["HTTP-Referer"] = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXTAUTH_URL || process.env.BASE_URL || "https://wa-akg.com";
+        headers["X-Title"] = botName || process.env.APP_NAME || "WA-AKG Bot";
     }
 
     try {
@@ -184,6 +228,15 @@ export async function generateAiReply({ userMessage, systemPrompt, botName, tena
             } catch {
                 errorDetail = await response.text().catch(() => "");
             }
+
+            if (response.status === 401 && aiConfig.isOpenRouter) {
+                throw new Error(`OpenRouter Authentication Failed (HTTP 401): ${errorDetail || "Invalid API key. Please check your key at https://openrouter.ai/keys."}`);
+            }
+
+            if (response.status === 402 && aiConfig.isOpenRouter) {
+                throw new Error(`OpenRouter Credit Limit Reached (HTTP 402): ${errorDetail || "Insufficient credits. Please top up your balance at https://openrouter.ai/credits."}`);
+            }
+
             throw new Error(`AI Provider (${aiConfig.provider}) HTTP ${response.status}: ${errorDetail.slice(0, 400)}`);
         }
 

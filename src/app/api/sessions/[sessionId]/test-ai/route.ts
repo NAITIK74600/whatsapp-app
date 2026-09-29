@@ -32,11 +32,14 @@ export async function POST(
         const body = await request.json().catch(() => ({}));
         
         // Use supplied test values from request body or fallback to saved botConfig
+        const rawProvider = (body.aiProvider || session.botConfig?.aiProvider || "openrouter").toLowerCase().trim();
+        const isCustom = rawProvider === "custom";
+
         const testConfig = {
-            aiProvider: body.aiProvider || session.botConfig?.aiProvider,
-            aiApiKey: body.aiApiKey || session.botConfig?.aiApiKey,
+            aiProvider: rawProvider,
+            aiApiKey: body.aiApiKey !== undefined ? body.aiApiKey : session.botConfig?.aiApiKey,
             aiModel: body.aiModel || session.botConfig?.aiModel,
-            aiApiUrl: body.aiApiUrl || session.botConfig?.aiApiUrl,
+            aiApiUrl: isCustom ? (body.aiApiUrl ?? session.botConfig?.aiApiUrl ?? null) : null,
         };
 
         const resolved = resolveAiConfig(testConfig);
