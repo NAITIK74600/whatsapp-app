@@ -55,7 +55,19 @@ function LoginForm() {
       if (result?.error) {
         setError("Invalid email or password");
       } else {
-        window.location.href = callbackUrl;
+        if (requestedCallbackUrl) {
+          window.location.href = callbackUrl;
+        } else {
+          try {
+            const sessionRes = await fetch('/api/auth/session');
+            const sessionData = await sessionRes.json();
+            if (sessionData?.user?.role === 'SUPERADMIN') {
+              window.location.href = '/super-admin';
+              return;
+            }
+          } catch {}
+          window.location.href = '/dashboard';
+        }
         router.refresh();
       }
     } catch (err) {

@@ -14,6 +14,7 @@ import {
     ArrowRight,
     Activity,
     Zap,
+    Shield,
 } from "lucide-react";
 
 import { auth } from "@/lib/auth";
@@ -84,9 +85,9 @@ export default async function DashboardPage() {
         },
         {
             title: "Subscription Plan",
-            value: activeTenant?.plan || "PRO",
+            value: activeTenant?.plan || (tenantContext?.isSuperAdmin ? "SUPERADMIN" : "STARTER"),
             icon: Activity,
-            description: activeTenant?.businessCategory || "Business Workspace",
+            description: activeTenant?.businessCategory || (tenantContext?.isSuperAdmin ? "Platform Owner Access" : "Business Workspace"),
             color: "text-primary",
             bg: "bg-primary/10",
         },
@@ -101,18 +102,51 @@ export default async function DashboardPage() {
 
     return (
         <div className="space-y-8 animate-in fade-in-50 duration-300">
+            {/* Super Admin Notice if No Client Tenant is Active */}
+            {tenantContext?.isSuperAdmin && !activeTenant && (
+                <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div className="flex items-center space-x-3">
+                        <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                            <Shield className="h-5 w-5" />
+                        </div>
+                        <div>
+                            <p className="text-sm font-semibold text-foreground">Super Admin Platform Mode</p>
+                            <p className="text-xs text-muted-foreground">
+                                No client workspace is currently selected. You have full platform access to manage clients, system settings, and audit logs.
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                        <Link href="/super-admin">
+                            <Button size="sm" className="rounded-xl gap-1.5 shadow-sm">
+                                <Shield className="h-4 w-4" /> Super Admin Console
+                            </Button>
+                        </Link>
+                        <Link href="/super-admin/clients">
+                            <Button size="sm" variant="outline" className="rounded-xl border-border/60">
+                                Client Workspaces
+                            </Button>
+                        </Link>
+                    </div>
+                </div>
+            )}
+
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
                 <div>
                     <div className="flex items-center space-x-2.5">
                         <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
-                            {activeTenant?.name || "Client Dashboard"}
+                            {activeTenant?.name || (tenantContext?.isSuperAdmin ? "Platform Workspace" : "Client Dashboard")}
                         </h2>
-                        {activeTenant?.plan && (
+                        {activeTenant?.plan ? (
                             <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/20">
                                 {activeTenant.plan} PLAN
                             </Badge>
-                        )}
+                        ) : tenantContext?.isSuperAdmin ? (
+                            <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/20">
+                                SUPER ADMIN
+                            </Badge>
+                        ) : null}
                     </div>
                     <p className="text-sm text-muted-foreground mt-1">
                         Workspace management and WhatsApp automation overview

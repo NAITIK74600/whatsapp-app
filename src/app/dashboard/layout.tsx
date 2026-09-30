@@ -27,14 +27,18 @@ export default async function DashboardLayout({
     const activeTenant = tenantContext?.tenant;
     const isSuspended = activeTenant?.status === "SUSPENDED" && !tenantContext?.isSuperAdmin;
 
-    // Direct check of user mustChangePassword state
+    // Direct check of user mustChangePassword state (only for client workspace users, never SuperAdmin)
     let mustChangePassword = false;
-    if (session?.user?.id) {
+    const isSuperAdminUser = (session?.user as any)?.role === "SUPERADMIN" ||
+        tenantContext?.isSuperAdmin ||
+        session?.user?.email?.toLowerCase() === process.env.ADMIN_EMAIL?.toLowerCase()?.trim();
+
+    if (session?.user?.id && !isSuperAdminUser) {
         const dbUser = await prisma.user.findUnique({
             where: { id: session.user.id },
-            select: { mustChangePassword: true }
+            select: { mustChangePassword: true, role: true }
         });
-        mustChangePassword = !!dbUser?.mustChangePassword;
+        mustChangePassword = !!dbUser?.mustChangePassword && dbUser.role !== "SUPERADMIN";
     }
 
     return (

@@ -20,7 +20,7 @@ async function main() {
 
     if (existingUser) {
         console.log(`User ${email} found. Promoting to SUPERADMIN...`);
-        const data = { role: 'SUPERADMIN' };
+        const data = { role: 'SUPERADMIN', mustChangePassword: false };
         if (password) {
             data.password = await bcrypt.hash(password, 10);
         }
@@ -43,7 +43,8 @@ async function main() {
                 email,
                 name: "Super Admin",
                 password: hashedPassword,
-                role: 'SUPERADMIN'
+                role: 'SUPERADMIN',
+                mustChangePassword: false
             }
         });
         console.log("Super Admin created successfully!");

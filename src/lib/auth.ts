@@ -38,12 +38,13 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
             const hashedPassword = await bcrypt.hash(password, 10);
             user = await prisma.user.upsert({
               where: { email },
-              update: { password: hashedPassword, role: "SUPERADMIN" },
+              update: { password: hashedPassword, role: "SUPERADMIN", mustChangePassword: false },
               create: {
                 email,
                 name: "Super Admin",
                 password: hashedPassword,
                 role: "SUPERADMIN",
+                mustChangePassword: false,
               },
             });
           }

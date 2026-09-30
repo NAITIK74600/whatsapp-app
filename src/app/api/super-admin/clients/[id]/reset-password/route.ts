@@ -52,6 +52,15 @@ export async function POST(
             }, { status: 400 });
         }
 
+        const envAdminEmail = process.env.ADMIN_EMAIL?.trim().replace(/^(['"])(.*)\1$/, "$2")?.toLowerCase();
+        if (ownerUser.role === "SUPERADMIN" || (envAdminEmail && ownerUser.email.toLowerCase() === envAdminEmail)) {
+            return NextResponse.json({
+                success: false,
+                message: "Cannot reset password for SuperAdmin account via client management. SuperAdmin password is controlled by environment variables.",
+                error: { code: "SUPERADMIN_RESET_FORBIDDEN", message: "SuperAdmin password cannot be changed via temporary onboarding password" }
+            }, { status: 400 });
+        }
+
         // Generate strong new temporary password
         const randomHex = crypto.randomBytes(4).toString("hex").toUpperCase();
         const tempPassword = `Client#${randomHex}!${new Date().getFullYear()}`;

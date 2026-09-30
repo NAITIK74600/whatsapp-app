@@ -165,7 +165,7 @@ export function resolveAiConfig(
     let model = (config?.aiModel?.trim() || activeSystem?.aiModel?.trim() || "").trim();
     if (!model) {
         if (isGemini) {
-            model = "gemini-2.5-flash";
+            model = "gemini-3.5-flash";
         } else if (isOpenRouter) {
             model = "openai/gpt-4o-mini";
         } else {
@@ -174,14 +174,14 @@ export function resolveAiConfig(
     }
 
     if (isGemini) {
-        if (!model.toLowerCase().includes("gemini") || model === "gemini-2.0-flash") {
-            model = "gemini-2.5-flash";
+        if (!model.toLowerCase().includes("gemini") || model === "gemini-2.0-flash" || model === "gemini-2.5-flash") {
+            model = "gemini-3.5-flash";
         } else {
             if (model.includes("/")) {
-                model = model.split("/").pop() || "gemini-2.5-flash";
+                model = model.split("/").pop() || "gemini-3.5-flash";
             }
-            if (model === "gemini-2.0-flash") {
-                model = "gemini-2.5-flash";
+            if (model === "gemini-2.0-flash" || model === "gemini-2.5-flash") {
+                model = "gemini-3.5-flash";
             }
         }
     } else if (isOpenRouter) {

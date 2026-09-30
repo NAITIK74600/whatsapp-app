@@ -1,35 +1,131 @@
 import { NextResponse, NextRequest } from "next/server";
 import { getTenantContext, recordAuditLog } from "@/lib/tenant-context";
 import { prisma } from "@/lib/prisma";
-import { resolveAiConfig } from "@/modules/whatsapp/bot/ai-reply";
+import { resolveAiConfig, getSystemAiConfig } from "@/modules/whatsapp/bot/ai-reply";
 
 export const dynamic = "force-dynamic";
 
-function cleanHtml(html: string): string {
-    let text = html
+function decodeHtmlEntities(text: string): string {
+    return text
+        .replace(/&nbsp;/gi, " ")
+        .replace(/&amp;/gi, "&")
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'")
+        .replace(/&apos;/gi, "'")
+        .replace(/&lt;/gi, "<")
+        .replace(/&gt;/gi, ">")
+        .replace(/&#8211;/gi, "-")
+        .replace(/&#8212;/gi, "--")
+        .replace(/&ndash;/gi, "-")
+        .replace(/&mdash;/gi, "--");
+}
+
+function extractWebsiteContent(html: string, targetUrl: string): string {
+    const parts: string[] = [];
+
+    // 1. Extract Meta tags
+    const metaTitleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    if (metaTitleMatch) {
+        parts.push(`PAGE TITLE: ${decodeHtmlEntities(metaTitleMatch[1].trim())}`);
+    }
+
+    const metaDescriptions: string[] = [];
+    const metaTags = html.matchAll(/<meta\s+[^>]*?(?:name|property)=["']([^"']+)["'][^>]*?content=["']([^"']+)["'][^>]*?>/gi);
+    for (const match of metaTags) {
+        const prop = match[1].toLowerCase();
+        const content = match[2].trim();
+        if (content && (prop.includes("description") || prop.includes("title") || prop === "keywords")) {
+            metaDescriptions.push(`${prop}: ${decodeHtmlEntities(content)}`);
+        }
+    }
+    if (metaDescriptions.length > 0) {
+        parts.push(`META INFORMATION:\n${metaDescriptions.join("\n")}`);
+    }
+
+    // 2. Extract JSON-LD Structured Data (Schema.org)
+    const ldJsonMatches = html.matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+    const structuredItems: string[] = [];
+    for (const match of ldJsonMatches) {
+        try {
+            const raw = match[1].trim();
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                structuredItems.push(JSON.stringify(parsed, null, 2));
+            }
+        } catch {}
+    }
+    if (structuredItems.length > 0) {
+        parts.push(`STRUCTURED BUSINESS DATA (JSON-LD):\n${structuredItems.join("\n---\n")}`);
+    }
+
+    // 3. Clean Main Body HTML
+    let bodyHtml = html;
+    const bodyMatch = html.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
+    if (bodyMatch) {
+        bodyHtml = bodyMatch[1];
+    }
+
+    // Remove scripts, styles, svgs, noscripts
+    let cleanText = bodyHtml
         .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
         .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
         .replace(/<svg\b[^<]*(?:(?!<\/svg>)<[^<]*)*<\/svg>/gi, "")
         .replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, "")
         .replace(/<!--[\s\S]*?-->/g, "");
 
-    text = text
+    cleanText = cleanText
         .replace(/<(?:br|hr)\s*\/?>/gi, "\n")
-        .replace(/<\/(?:p|div|h[1-6]|li|tr)>/gi, "\n")
-        .replace(/<[^>]+>/g, " ")
-        .replace(/&nbsp;/gi, " ")
-        .replace(/&amp;/gi, "&")
-        .replace(/&quot;/gi, '"')
-        .replace(/&#39;/gi, "'")
-        .replace(/&lt;/gi, "<")
-        .replace(/&gt;/gi, ">");
+        .replace(/<\/(?:p|div|h[1-6]|li|tr|section|article)>/gi, "\n")
+        .replace(/<[^>]+>/g, " ");
 
-    return text
+    cleanText = decodeHtmlEntities(cleanText);
+
+    const bodyCleaned = cleanText
         .split("\n")
         .map(line => line.trim())
         .filter(line => line.length > 0)
-        .join("\n")
-        .slice(0, 40000);
+        .join("\n");
+
+    if (bodyCleaned.length > 30) {
+        parts.push(`PAGE BODY CONTENT:\n${bodyCleaned}`);
+    }
+
+    return parts.join("\n\n").slice(0, 45000);
+}
+
+function parseJsonFromAi(contentStr: string): any {
+    if (!contentStr || !contentStr.trim()) {
+        throw new Error("AI returned an empty response. Please verify your API key and quota.");
+    }
+
+    let cleanStr = contentStr.trim();
+    if (cleanStr.startsWith("```")) {
+        cleanStr = cleanStr.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
+    }
+
+    // Direct JSON parse attempt
+    try {
+        return JSON.parse(cleanStr);
+    } catch {
+        // Match outer JSON object
+        const jsonMatch = cleanStr.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+            try {
+                return JSON.parse(jsonMatch[0]);
+            } catch {}
+        }
+
+        // Match JSON array of entries if root was array
+        const arrayMatch = cleanStr.match(/\[[\s\S]*\]/);
+        if (arrayMatch) {
+            try {
+                const arr = JSON.parse(arrayMatch[0]);
+                return { entries: arr };
+            } catch {}
+        }
+
+        throw new Error("AI did not return a valid JSON structure. Please try again.");
+    }
 }
 
 export async function POST(request: NextRequest) {
@@ -94,8 +190,39 @@ export async function POST(request: NextRequest) {
             clearTimeout(timeout);
         }
 
-        const cleanedText = cleanHtml(html);
-        if (cleanedText.length < 50) {
+        let extractedContent = extractWebsiteContent(html, targetUrl);
+
+        // SPA Fallback: If body has no content and no structured data was found, check for JavaScript bundle
+        if (extractedContent.length < 100) {
+            const bundleMatch = html.match(/src=["'](\/assets\/[^"']+\.js|https?:\/\/[^"']+\/assets\/[^"']+\.js)["']/i);
+            if (bundleMatch) {
+                try {
+                    let bundleUrl = bundleMatch[1];
+                    if (bundleUrl.startsWith("/")) {
+                        const parsedBase = new URL(targetUrl);
+                        bundleUrl = `${parsedBase.origin}${bundleUrl}`;
+                    }
+                    const bundleRes = await fetch(bundleUrl, {
+                        headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" }
+                    });
+                    if (bundleRes.ok) {
+                        const bundleText = await bundleRes.text();
+                        // Extract plain readable text segments from JS bundle (strings >= 20 chars)
+                        const strMatches = bundleText.match(/"([^"\\]{20,200})"/g) || [];
+                        const readable = strMatches
+                            .map(s => s.slice(1, -1))
+                            .filter(s => !s.includes("webpack") && !s.includes("import") && !s.includes("function") && !s.includes("<path") && /[a-zA-Z]{3,}/.test(s))
+                            .slice(0, 100)
+                            .join("\n");
+                        if (readable.length > 50) {
+                            extractedContent += `\n\nAPPLICATION CONTENT:\n${readable}`;
+                        }
+                    }
+                } catch {}
+            }
+        }
+
+        if (extractedContent.length < 50) {
             return NextResponse.json({
                 success: false,
                 message: "Website returned insufficient readable text content to analyze."
@@ -108,7 +235,9 @@ export async function POST(request: NextRequest) {
             select: { botConfig: true }
         });
 
-        const aiConfig = resolveAiConfig(session?.botConfig);
+        const systemConfig = await getSystemAiConfig();
+        const aiConfig = resolveAiConfig(session?.botConfig, systemConfig);
+
         if (!aiConfig.apiKey) {
             return NextResponse.json({
                 success: false,
@@ -126,7 +255,7 @@ Target Categories:
 - GENERAL: About the business, contact methods, locations, opening hours.
 
 Extract between 5 to 30 concise, rich, and high-value items.
-Return ONLY valid JSON without markdown wrapping:
+Return ONLY valid JSON matching this schema:
 {
   "businessInfo": {
     "name": "string or null",
@@ -145,64 +274,122 @@ Return ONLY valid JSON without markdown wrapping:
   ]
 }`;
 
-        const userPrompt = `Extract all products, services, opening hours, and business facts from this website (${targetUrl}):\n\n${cleanedText}`;
-
-        const headers: Record<string, string> = {
-            "Authorization": `Bearer ${aiConfig.apiKey}`,
-            "Content-Type": "application/json",
-        };
-
-        if (aiConfig.isGemini) {
-            headers["x-goog-api-key"] = aiConfig.apiKey;
-        }
-
-        const aiRes = await fetch(aiConfig.endpoint, {
-            method: "POST",
-            headers,
-            body: JSON.stringify({
-                model: aiConfig.model,
-                messages: [
-                    { role: "system", content: systemInstruction },
-                    { role: "user", content: userPrompt }
-                ],
-                temperature: 0.2,
-                max_tokens: 3000
-            })
-        });
-
-        if (!aiRes.ok) {
-            const errBody = await aiRes.text().catch(() => "");
-            return NextResponse.json({
-                success: false,
-                message: `AI Extraction Failed (HTTP ${aiRes.status}): ${errBody.slice(0, 300)}`
-            }, { status: 500 });
-        }
-
-        const aiData = await aiRes.json();
-        const contentStr = aiData?.choices?.[0]?.message?.content?.trim() || "";
-
-        let cleanJsonStr = contentStr;
-        if (cleanJsonStr.startsWith("```")) {
-            cleanJsonStr = cleanJsonStr.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/i, "").trim();
-        }
+        const userPrompt = `Extract all products, services, opening hours, and business facts from this website (${targetUrl}):\n\n${extractedContent}`;
 
         let parsedResult: any = null;
-        try {
-            parsedResult = JSON.parse(cleanJsonStr);
-        } catch {
-            // Fallback match for first JSON object
-            const jsonMatch = cleanJsonStr.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                parsedResult = JSON.parse(jsonMatch[0]);
-            } else {
-                throw new Error("AI did not return valid JSON structure");
+
+        if (aiConfig.isGemini) {
+            // For Gemini, use official native generateContent API with responseMimeType: "application/json"
+            // This guarantees strictly valid JSON return without markdown code fences or syntax errors
+            const candidateModels = Array.from(new Set([
+                aiConfig.model || "gemini-3.5-flash",
+                "gemini-3.5-flash",
+                "gemini-3.7-flash",
+                "gemini-3.8-flash",
+                "gemini-flash-latest"
+            ]));
+
+            let lastErrorMessage = "";
+
+            for (const modelName of candidateModels) {
+                try {
+                    const nativeUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${aiConfig.apiKey}`;
+                    const aiRes = await fetch(nativeUrl, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            systemInstruction: { parts: [{ text: systemInstruction }] },
+                            contents: [{ parts: [{ text: userPrompt }] }],
+                            generationConfig: {
+                                responseMimeType: "application/json",
+                                temperature: 0.2,
+                                maxOutputTokens: 4000
+                            }
+                        })
+                    });
+
+                    if (aiRes.ok) {
+                        const jsonRes = await aiRes.json();
+                        const rawText = jsonRes?.candidates?.[0]?.content?.parts?.[0]?.text;
+                        if (rawText) {
+                            parsedResult = parseJsonFromAi(rawText);
+                            break;
+                        }
+                    } else {
+                        const errText = await aiRes.text().catch(() => "");
+                        lastErrorMessage = `Model ${modelName} returned HTTP ${aiRes.status}: ${errText.slice(0, 200)}`;
+                    }
+                } catch (err: any) {
+                    lastErrorMessage = `Model ${modelName} call failed: ${err.message}`;
+                }
             }
+
+            // Fallback to chat completions endpoint if native calls did not succeed
+            if (!parsedResult) {
+                const headers: Record<string, string> = {
+                    "Authorization": `Bearer ${aiConfig.apiKey}`,
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": aiConfig.apiKey
+                };
+
+                const fallbackRes = await fetch(aiConfig.endpoint, {
+                    method: "POST",
+                    headers,
+                    body: JSON.stringify({
+                        model: aiConfig.model || "gemini-3.5-flash",
+                        messages: [
+                            { role: "system", content: systemInstruction },
+                            { role: "user", content: userPrompt }
+                        ],
+                        temperature: 0.2,
+                        max_tokens: 3000
+                    })
+                });
+
+                if (fallbackRes.ok) {
+                    const fallbackData = await fallbackRes.json();
+                    const contentStr = fallbackData?.choices?.[0]?.message?.content?.trim() || "";
+                    parsedResult = parseJsonFromAi(contentStr);
+                } else {
+                    throw new Error(lastErrorMessage || "All Gemini models were unavailable. Please try again in a few moments.");
+                }
+            }
+        } else {
+            // OpenAI, OpenRouter, Custom
+            const headers: Record<string, string> = {
+                "Authorization": `Bearer ${aiConfig.apiKey}`,
+                "Content-Type": "application/json",
+            };
+
+            const aiRes = await fetch(aiConfig.endpoint, {
+                method: "POST",
+                headers,
+                body: JSON.stringify({
+                    model: aiConfig.model,
+                    messages: [
+                        { role: "system", content: systemInstruction },
+                        { role: "user", content: userPrompt }
+                    ],
+                    response_format: { type: "json_object" },
+                    temperature: 0.2,
+                    max_tokens: 3000
+                })
+            });
+
+            if (!aiRes.ok) {
+                const errBody = await aiRes.text().catch(() => "");
+                throw new Error(`AI Extraction Failed (HTTP ${aiRes.status}): ${errBody.slice(0, 300)}`);
+            }
+
+            const aiData = await aiRes.json();
+            const contentStr = aiData?.choices?.[0]?.message?.content?.trim() || "";
+            parsedResult = parseJsonFromAi(contentStr);
         }
 
         const entries = (parsedResult?.entries || []).map((e: any) => ({
             category: (e.category || "GENERAL").toUpperCase(),
-            title: e.title?.trim() || "Untitled Item",
-            content: e.content?.trim() || "",
+            title: (e.title || "Untitled Item").trim().slice(0, 190),
+            content: (e.content || "").trim(),
             sourceUrl: targetUrl,
             isVerified: true
         })).filter((e: any) => e.content.length > 5);
